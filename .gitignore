@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Data & outputs
+*.h5
+*.hdf5
+*.log
+*.xml
+*.out
+*.json
+results/
+libraries_xs/
+figures/
+statepoint.*
+summary.h5
+
+# Vim
+*~
+*.sw[po]
+.*.un~
