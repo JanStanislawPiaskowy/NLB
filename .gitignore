@@ -17,11 +17,18 @@ venv/
 *.xml
 *.out
 *.json
+*.sif
 results/
 libraries_xs/
 figures/
 statepoint.*
 summary.h5
+scheduler-stderr.txt
+scheduler-stdout.txt
+OLD_*/
+sensitivity_results_*/
+logs/
+submit/
 
 # Vim
 *~
