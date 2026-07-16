@@ -1,21 +1,5 @@
 """All material definitions for the GCR model.
 
-Split from the old set_materials() and its helpers.  The functions here:
-
-  build_materials(cfg)            -> dict[str, openmc.Material]   (base set)
-  build_layered_materials(cfg, m) -> LayeredMaterials              (axial layers)
-  apply_beo_sab(cfg, m)           -> attach/strip BeO S(a,b) kernels
-  apply_fuel_density_alpha(m, a)  -> the alpha scaling that used to hide in main()
-  fuel_temperature_from_h2(cfg, T_H)
-  build_cross_section_library(cfg, output_dir) -> path to cross_sections.xml
-
-Why alpha scaling lives HERE and not in a script
-------------------------------------------------
-The old main() applied cfg.fuel_density_alpha in a loop over materials.
-Any entry-point script that forgot to copy that loop verbatim silently ran
-different physics -- this is exactly how the alpha inconsistency between
-sweep scripts happened.  Now GCR.build() calls apply_fuel_density_alpha()
-itself; scripts cannot get it wrong because they never touch it.
 """
 
 import os
@@ -93,6 +77,7 @@ def _seeded_hydrogen(name: str, T: float, rho_h_gcc: float,
     else:
         material.add_element('H', 1.0)
         material.set_density('g/cm3', rho_h_gcc)
+    return material
 
 def build_materials(cfg: GCRConfig) -> dict:
     """Define all base materials.  Purely composition + density: no file I/O.
@@ -216,9 +201,6 @@ def build_layered_materials(cfg: GCRConfig, materials: dict) -> LayeredMaterials
     radiation-equilibrium relation, the real-gas uranium density is
     re-queried from gcnr for each layer so density tracks temperature.
 
-    New materials are ALSO inserted into `materials` under their old keys
-    ('hydrogen_layer_k', 'fuel_inner_layer_k', ...) so that colour maps,
-    tallies and the alpha scaling see them exactly as before.
     """
     n = cfg.n_axial_layers
 
@@ -230,11 +212,12 @@ def build_layered_materials(cfg: GCRConfig, materials: dict) -> LayeredMaterials
             fuel_outer_layers=[materials['fuel_outer']],
         )
 
-    # --- Load the propellant profile (SI units) ------------------------------
+    # ~~~~ Loading the profile of the propellant flow ~~~~~~~~~
     profile = np.load(cfg.h2_density_profile_path)
     x_m = profile['x_m']
     rho_function = interp1d(x_m, profile['rho_kgm3'], kind='linear', bounds_error=True)
     T_function = interp1d(x_m, profile['T_K'], kind='linear', bounds_error=True)
+    print('exit temperature', T_function(cfg.L / 100.0))
 
     L_m = cfg.L / 100.0
     dz_m = L_m / n
@@ -347,6 +330,7 @@ def apply_fuel_density_alpha(materials: dict, alpha: float) -> None:
         if id(mat) in seen:
             continue
         seen.add(id(mat))
+        print(mat)
         if mat.name == 'fuel' or mat.name.startswith(fuel_prefixes):
             mat.set_density('g/cm3', mat.density * alpha)
 
