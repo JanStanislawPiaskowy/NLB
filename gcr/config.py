@@ -128,7 +128,7 @@ class GCRConfig:
 
     # --- Nozzle -------------------------------------------------------------------
     L_conv: float = 48.0                  # [cm] convergent nozzle length
-    nozzle_throat_radius: float = 3.67    # [cm]
+    nozzle_throat_radius: float = 1.39    # [cm]
 
     n_liner_tubes: int = 72
 
