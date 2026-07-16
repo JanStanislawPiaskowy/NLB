@@ -36,6 +36,8 @@ REQUIRED_NUCLIDES = [
     'O16', 'O17', 'O18',
     'Si28', 'Si29', 'Si30',
     'U233', 'Th230', 'Th232',
+    'W180', 'W182', 'W183',
+    'W184', 'W186',
 ]
 
 OPTIONAL_SAB_NUCLIDES = [
@@ -141,8 +143,11 @@ class GCRConfig:
     Q_total: float = 4.6e9 / 7            # [W] cavity power in the radiation balance
     epsilon_fuel: float = 0.85            # [-] emissivity at the fuel–wall interface
 
-    # --- Density scaling ---------------------------------------------------------------
-    fuel_density_alpha: float = 2.0540    # [-] multiplier applied to all fuel densities
+    # ~~~~~~~ Density factors ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    fuel_density_alpha: float = 2.0500  # [-] multiplier applied to all fuel densities
+    seed_mass_fraction: float = 0.039  # [-] tungsten seed mass flow fraction, F-910093-36 p.8:
+    # "[...] This seed density is equal to 3.9 percent of the inlet propellant density"
+    # it is further assumed this fraction does not change with the flow (no slip velocity, ...)
 
     # --- Monte Carlo run parameters ------------------------------------------------------
     batches:   int = 250

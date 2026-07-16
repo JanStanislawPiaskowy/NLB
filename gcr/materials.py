@@ -71,6 +71,28 @@ def _fuel_gas_recipe(name: str, T_fuel: float, P_U_atm: float,
     mat.set_density('g/cm3', rho_total)
     return mat
 
+def _seeded_hydrogen(name: str, T: float, rho_h_gcc: float,
+                     f_seed: float) -> openmc.Material:
+    """
+    In the duct, the propellant (hydrogen) is seeded with tungsten to increase
+    the opacity to the radiation of the normally transparent hydrogen.
+
+    The f_seed is defined relative to the hydrogen, i.e. m_W/m_H = f_seed
+    and thus m_prop = (1 + f_seed) * m_H
+
+    As far as I remember (check config) the value provided is given for the inlet
+    condition. However, here it is assumed it stays constant along the way for
+    simplification.
+    """
+    material = openmc.Material(name=name, temperature=T)
+
+    if f_seed > 0.0: # allow for runs where no tungsten
+        material.add_element('H', 1.0 / (1.0 + f_seed), 'wo')
+        material.add_element('W', f_seed / (1.0 + f_seed), 'wo')
+        material.set_density('g/cm3', rho_h_gcc * (1.0 + f_seed))
+    else:
+        material.add_element('H', 1.0)
+        material.set_density('g/cm3', rho_h_gcc)
 
 def build_materials(cfg: GCRConfig) -> dict:
     """Define all base materials.  Purely composition + density: no file I/O.
@@ -219,24 +241,21 @@ def build_layered_materials(cfg: GCRConfig, materials: dict) -> LayeredMaterials
 
     layered = LayeredMaterials()
 
-    # --- Propellant layers -----------------------------------------------------
+    # ~~~~ Create layered materials (seeded) ~~~~~~~
     for k in range(n):
         z_mid_m = (k + 0.5) * dz_m
-        rho_gcc = float(rho_function(z_mid_m)) / 1000   # kg/m3 -> g/cm3
+        rho_gcc = float(rho_function(z_mid_m)) / 1000   # given in SI unit kg/m3 in the .npz file
         T_val = float(T_function(z_mid_m))
 
-        mat = openmc.Material(name=f'hydrogen_layer{k}', temperature=T_val)
-        mat.add_element('H', 1.0)
-        mat.set_density('g/cm3', rho_gcc)
+        prop_mat = _seeded_hydrogen(name=f'hydrogen_layer{k}', T=T_val, rho_h_gcc=rho_gcc,
+                                    f_seed = cfg.seed_mass_fraction)
 
-        layered.h2_layers.append(mat)
-        materials[f'hydrogen_layer_{k}'] = mat
+        layered.h2_layers.append(prop_mat)
+        materials[f'hydrogen_layer_{k}'] = prop_mat
 
     # Header region above the fuel zone: inlet conditions
-    h2_header = openmc.Material(name='hydrogen_header',
-                                temperature=float(T_function(0.0)))
-    h2_header.add_element('H', 1.0)
-    h2_header.set_density('g/cm3', float(rho_function(0.0)) / 1000)
+    h2_header = _seeded_hydrogen(name='hydrogen_header', T=float(T_function(0.0)), rho_h_gcc=float(rho_function(0.0)) / 1_000,
+                                 f_seed=cfg.seed_mass_fraction)
     layered.h2_header = h2_header
     materials['hydrogen_header'] = h2_header
 
