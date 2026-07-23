@@ -254,6 +254,8 @@ class GCR:
 
     def add_fission_spectrum_tally(self) -> None:
         self.register_tally(tally_factories.fission_spectrum_tally(self.materials))
+    def add_unweighted_lifetime_tally(self) -> None:
+        self.register_tally(tally_factories.unweighted_lifetime_tally())
 
     # ------------------------------------------------------------------
     # Export / run

@@ -37,9 +37,9 @@ def make_config() -> GCRConfig:
         # L=6.0 * 30.48,
         # th_atom_fraction=0.10,       # thorium sweep, one line
         # seed=1,                      # bit-reproducible run
-        batches=250,
-        inactive=50,
-        particles=500_000,
+        batches=50,
+        inactive=15,
+        particles=50_000,
     )
 
 
@@ -55,6 +55,7 @@ def add_reference_tallies(core: GCR, config: GCRConfig) -> None:
         z_max=config.L * 1.2,
     )
     core.add_fission_spectrum_tally()
+    core.add_unweighted_lifetime_tally()
 
 
 def plot_only(config: GCRConfig, output_dir: str = 'settings') -> None:

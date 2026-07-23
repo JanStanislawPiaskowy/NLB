@@ -244,3 +244,25 @@ def axial_flux_tally(cfg: GCRConfig, ny: int = 600, nz: int = 600,
     return TallyBundle(tallies=[tally], mesh=mesh,
                        meta={'thermal_cutoff': thermal_cutoff,
                              'epithermal_cutoff': epithermal_cutoff})
+
+def unweighted_lifetime_tally() -> TallyBundle:
+    """Global tallies for the unweighted generation time / removal lifetime.
+
+    In an eigenvalue run all tallies are normalised per source neutron, so
+    with  I = <phi/v>,  F = <nu-fission>  (= k_eff),  A = <absorption>:
+
+        Lambda_unweighted = I / F          (generation time)
+        ell_unweighted    = I / (F/k - A)  (removal lifetime, 1/(v*Sigma_a + leak))
+
+    and the two agree to within the leakage/absorption balance, i.e.
+    ell = k * Lambda exactly when the balance closes.
+
+    No filters -- these are whole-geometry integrals, which is what the
+    balance requires.
+    """
+    tally = openmc.Tally(name='unweighted_lifetime')
+    tally.scores = ['inverse-velocity', 'nu-fission', 'absorption']
+
+    print('Unweighted lifetime tally created: inverse-velocity, '
+          'nu-fission, absorption (global, unfiltered)')
+    return TallyBundle(tallies=[tally])
