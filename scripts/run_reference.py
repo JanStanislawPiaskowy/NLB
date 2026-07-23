@@ -30,7 +30,7 @@ def make_config() -> GCRConfig:
     """The reference configuration.  Change parameters HERE (or load a JSON
     snapshot with GCRConfig.from_json) -- never by editing the package."""
     return GCRConfig(
-        cross_sections_dir='../../JanPiaskowy/MSc_Course/Thesis/Codes/CrossSections/jeff40_hdf5',
+        cross_sections_dir='libraries_xs/jeff40_hdf5',
         n_axial_layers=10,
         h2_density_profile_path='settings/h2_density_profile.npz',
         # Example overrides:
