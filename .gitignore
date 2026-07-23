@@ -28,7 +28,7 @@ scheduler-stdout.txt
 OLD_*/
 sensitivity_results_*/
 logs/
-submit/
+submits/
 
 # Vim
 *~
