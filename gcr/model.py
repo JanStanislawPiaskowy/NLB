@@ -45,7 +45,7 @@ import openmc
 import openmc.stats
 
 from .config import GCRConfig
-from .materials import (LayeredMaterials, apply_beo_sab, apply_fuel_density_alpha,
+from .materials import (LayeredMaterials, apply_beo_sab, apply_graphite_sab, apply_fuel_density_alpha,
                         build_cross_section_library, build_layered_materials,
                         build_materials)
 from .geometry.hexmaths import cavity_placements
@@ -113,6 +113,7 @@ class GCR:
         self.materials = build_materials(cfg)
         self.layered = build_layered_materials(cfg, self.materials)
         apply_beo_sab(cfg, self.materials)
+        apply_graphite_sab(cfg. self.materials)
         apply_fuel_density_alpha(self.materials, cfg.fuel_density_alpha)
 
         # 2) The seven cavities, placed by the ONE placement function.

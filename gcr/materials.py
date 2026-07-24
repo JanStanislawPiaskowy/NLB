@@ -290,14 +290,6 @@ def _copy_material(src: openmc.Material, dst: openmc.Material) -> None:
 def apply_beo_sab(cfg: GCRConfig, materials: dict, t_max: float = 1200.0,
                   sab_tables: tuple = ('c_Be_in_BeO', 'c_O_in_BeO')) -> None:
     """Conditionally attach BeO S(a,b) thermal-scattering kernels.
-
-    The ENDF/B-VIII.1 evaluation for BeO is tabulated up to 1200 K.
-    Materials at or below `t_max` get the kernels attached; hotter
-    materials are left in free-gas mode (which is what OpenMC would do
-    anyway, just without the temperature-tolerance error).
-
-    Idempotent: re-running won't double-attach, and crossing back above
-    `t_max` strips any previously attached kernels.
     """
     if 'BeO' not in materials:
         return
@@ -316,7 +308,34 @@ def apply_beo_sab(cfg: GCRConfig, materials: dict, t_max: float = 1200.0,
     else:
         mat._sab = []
 
+def apply_graphite_sab(cfg: GCRConfig, materials: dict, t_max: float = 3000.0,
+                       sab_tables: tuple = ('c_Graphite')) -> None:
+    """Conditionally attach graphite S(a,b) TSL.
 
+    The maximum temperature of 3000K found in the JEFF-4.0 evaluation.
+
+    this function is a copy of the apply_beo_sab function just above
+    """
+
+    if 'C' not in materials:
+        return
+
+    available = tuple(
+            t for t in sab_tables
+            if os.path.isfile(os.path.join(cfg.cross_sections_dir, f'{t}.h5'))
+            )
+
+    mat = materials['C']
+    if available and mat.temperature <= t_max:
+        attached = {name for name, _ in (mat._sab or [])}
+        for table in available:
+            if table not in attached:
+                mat.add_s_alpha_beta(table)
+    elif available and mat.temperature <= t_max:
+        print("Warning: S(a,b) for graphite not attached. File exists"
+              f"but the graphite temperature {mat.temperature}K exceeds the maximum temperature {t_max}K")
+    else:
+        mat._sab = []
 def apply_fuel_density_alpha(materials: dict, alpha: float) -> None:
     """Scale every fuel material's density by `alpha` (once).
 
