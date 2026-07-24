@@ -217,7 +217,7 @@ def build_layered_materials(cfg: GCRConfig, materials: dict) -> LayeredMaterials
     x_m = profile['x_m']
     rho_function = interp1d(x_m, profile['rho_kgm3'], kind='linear', bounds_error=True)
     T_function = interp1d(x_m, profile['T_K'], kind='linear', bounds_error=True)
-    print('exit temperature', T_function(cfg.L / 100.0))
+    #print('exit temperature', T_function(cfg.L / 100.0))
 
     L_m = cfg.L / 100.0
     dz_m = L_m / n
@@ -349,7 +349,7 @@ def apply_fuel_density_alpha(materials: dict, alpha: float) -> None:
         if id(mat) in seen:
             continue
         seen.add(id(mat))
-        print(mat)
+        #print(mat)
         if mat.name == 'fuel' or mat.name.startswith(fuel_prefixes):
             mat.set_density('g/cm3', mat.density * alpha)
 
@@ -384,6 +384,7 @@ def build_cross_section_library(cfg: GCRConfig, output_dir: str) -> str:
     for nuclide in OPTIONAL_SAB_NUCLIDES:
         path = os.path.join(cfg.cross_sections_dir, f'{nuclide}.h5')
         if os.path.isfile(path):
+            print('Registered S(a,b)', nuclide)
             library.register_file(path)
         else:
             print(f"  S(a,b) table '{nuclide}' absent in "

@@ -29,6 +29,11 @@ OLD_*/
 sensitivity_results_*/
 logs/
 submits/
+jobout.txt
+joberr.txt
+settings/core
+scripts/quickie.py
+scripts/run_reference.py
 
 # Vim
 *~

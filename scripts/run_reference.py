@@ -37,9 +37,10 @@ def make_config() -> GCRConfig:
         # L=6.0 * 30.48,
         # th_atom_fraction=0.10,       # thorium sweep, one line
         # seed=1,                      # bit-reproducible run
-        batches=50,
-        inactive=15,
-        particles=50_000,
+        batches=250,
+        inactive=50,
+        particles=500_000,
+        #temperature_BeO=1100,
     )
 
 
