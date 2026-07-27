@@ -16,7 +16,7 @@ venv/
 *.log
 *.xml
 *.out
-*.json
+#*.json
 *.sif
 results/
 libraries_xs/
@@ -35,6 +35,7 @@ settings/core
 scripts/quickie.py
 scripts/run_reference.py
 reference_runs/
+heating_runs/
 
 # Vim
 *~

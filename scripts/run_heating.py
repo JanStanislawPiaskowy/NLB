@@ -46,7 +46,7 @@ from gcr.analysis import heating
 # SETTINGS
 # =============================================================================
 
-MODE = 'coupled'                 # 'inventory' | 'local' | 'coupled' | 'report'
+MODE = 'inventory'                 # 'inventory' | 'local' | 'coupled' | 'report'
 
 POWER_W = 4.6e9
 OUT_DIR = f'heating_runs/{MODE}'
@@ -95,7 +95,7 @@ def make_config() -> GCRConfig:
         photon_cross_sections_dir=PHOTON_XS_DIR,
         n_axial_layers=10,
         h2_density_profile_path='settings/h2_density_profile.npz',
-        temperature_BeO=1100,
+        #temperature_BeO=1100,
         batches=N_BATCHES,
         inactive=N_INACTIVE,
         particles=N_PARTICLES,

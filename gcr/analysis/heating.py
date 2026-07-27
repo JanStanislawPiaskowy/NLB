@@ -176,26 +176,28 @@ def default_rules(z_active: Tuple[float, float] = Z_ACTIVE_DEFAULT) -> List[Regi
     look at the ``region`` column, and correct these patterns (or hand-edit the
     generated JSON map) before trusting any number.
     """
-    z0, z1 = z_active
     return [
-        # -- specific structures first ---------------------------------------
-        RegionRule("nozzles",            cell_name=r"nozzle"),
+        # specific structures by material 
+        #RegionRule("nozzles",            cell_name=r"nozzle"),
         RegionRule("tie_rods",           cell_name=r"tie[_ -]?rod"),
+        RegionRule("hydrogen_direct",    cell_name=r"HydrogenCoolant"),
         RegionRule("flow_divider",       cell_name=r"flow[_ -]?divid|divider"),
-        RegionRule("pressure_vessel",    cell_name=r"pressure[_ -]?vessel|vessel|\bpv\b"),
-        RegionRule("pressure_vessel",    material_name=r"vessel|inconel|steel"),
         RegionRule("cavity_end_walls",   cell_name=r"end[_ -]?wall"),
-        RegionRule("propellant_liners",  cell_name=r"liner"),
-        # -- cavity interior --------------------------------------------------
+        RegionRule("propellant_liners",  cell_name=r"Liner\s+beryllium"),
+        
+        # moderator by name
+        RegionRule("beo_moderator",      cell_name=r"BeO_mod"),
+        RegionRule("end_moderators",     cell_name=r"end_BeO|end_graphite|top cap|nozzle_BeO"),
+        RegionRule("graphite_moderator", cell_name=r"graphite moderator"),
+
+        # everython else by material 
         RegionRule("fuel",               material_name=r"fuel|u-?233|uranium"),
-        RegionRule("buffer_gas",         material_name=r"neon|\bne\b|buffer"),
+        RegionRule("buffer_gas",         material_name=r"^Ne$|neon"),
         RegionRule("transparent_wall",   material_name=r"sio2|silica|quartz|transparent"),
-        RegionRule("hydrogen_direct",    material_name=r"hydrogen|\bh2\b|propellant"),
-        RegionRule("hydrogen_direct",    material_name=r"tungsten|seed"),
-        # -- moderator: split axially before the generic BeO rule -------------
-        RegionRule("beo_moderator",      material_name=r"beo|beryll", z_range=(z0, z1)),
-        RegionRule("end_moderators",     material_name=r"beo|beryll"),
+        RegionRule("hydrogen_direct",    material_name=r"hydrogen|\bh2\b|propellant|tungsten|seed"),
+        RegionRule("beo_moderator",      material_name=r"\bBeO\b"),
         RegionRule("graphite_moderator", material_name=r"graphite|carbon"),
+
     ]
 
 
