@@ -30,7 +30,7 @@ in_to_cm = 2.54    # [cm/in]
 # Nuclide files required by the model (checked at export time)
 # ---------------------------------------------------------------------------
 REQUIRED_NUCLIDES = [
-    'Be9', 'C12', 'C13', 'F19',
+    'Be9', 'C12', 'C13',
     'H1', 'H2',
     'Ne20', 'Ne21', 'Ne22',
     'O16', 'O17', 'O18',
@@ -43,6 +43,7 @@ REQUIRED_NUCLIDES = [
 OPTIONAL_SAB_NUCLIDES = [
     'c_Be_in_BeO',
     'c_O_in_BeO',
+    'c_Graphite',
 ]
 
 
@@ -144,7 +145,7 @@ class GCRConfig:
     epsilon_fuel: float = 0.85            # [-] emissivity at the fuel–wall interface
 
     # ~~~~~~~ Density factors ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    fuel_density_alpha: float = 2.0500  # [-] multiplier applied to all fuel densities
+    fuel_density_alpha: float = 2.0255  # [-] multiplier applied to all fuel densities
     seed_mass_fraction: float = 0.039  # [-] tungsten seed mass flow fraction, F-910093-36 p.8:
     # "[...] This seed density is equal to 3.9 percent of the inlet propellant density"
     # it is further assumed this fraction does not change with the flow (no slip velocity, ...)
@@ -153,7 +154,7 @@ class GCRConfig:
     batches:   int = 250
     inactive:  int = 25
     particles: int = 600_000
-    temperature_tolerance: float = 300.0  # [K] settings.temperature interpolation window
+    temperature_tolerance: float = 400.0  # [K] settings.temperature interpolation window
     seed: int | None = None               # None = OpenMC default; set for bit-reproducible runs
 
     # --- Derived values ---------------------
@@ -161,6 +162,17 @@ class GCRConfig:
     tilt:       float = field(init=False)
     rho_h2_avg: float = field(init=False)
     rho_ne_avg: float = field(init=False)
+
+    # ~~~~~~ Photon data ~~~~~~
+    photon_transport: bool = True
+    photon_cutoff_ev: float  = 1.0e3 # below this energy, the photons are not modelled
+    # because the data does not account for molecular effects.
+    #  the validity of the photon interaction model is not ensured
+    # data is okay to use for atoms Z=1-98
+    # check out "Implementation and Validation of Photon Trasport in OpenMC" by ANL
+    # publicatons.anl.gib/anlpubs/2018/12/149145.pdf
+    photon_cross_sections_dir: str = '' # if left empty, it should fall back on cross_sections_dir
+
 
     def __post_init__(self):
         """Compute derived geometric values after the dataclass is initialised."""

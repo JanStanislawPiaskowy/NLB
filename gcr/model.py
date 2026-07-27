@@ -27,8 +27,6 @@ Typical use
 -----------
     from gcr import GCRConfig, GCR
 
-    config = GCRConfig(cross_sections_dir='libraries_xs/jeff40_hdf5')
-    core = GCR(config)
     core.build()                      # returns an openmc.Model
 
     core.add_power_tally()
@@ -113,7 +111,7 @@ class GCR:
         self.materials = build_materials(cfg)
         self.layered = build_layered_materials(cfg, self.materials)
         apply_beo_sab(cfg, self.materials)
-        apply_graphite_sab(cfg. self.materials)
+        apply_graphite_sab(cfg, self.materials)
         apply_fuel_density_alpha(self.materials, cfg.fuel_density_alpha)
 
         # 2) The seven cavities, placed by the ONE placement function.
@@ -173,7 +171,15 @@ class GCR:
         settings.particles = cfg.particles
 
         # IFP for kinetic parameters (beta_eff, Lambda_eff)
-        settings.ifp_n_generation = min(5, cfg.inactive)
+        settings.ifp_n_generation = min(5, cfg.inactive) # number of generation after which neutron is added to the tally
+        # cannot be bigger than the inactive batches
+        # check out the documentation because I am still in the process of understanding this method
+
+        # Photons
+        if cfg.photon_transport:
+            settings.photon_transport = True
+            settings.electron_treatment = "ttb"  #create secondary bremstrahlung photons, alternative 'led' = local deposition for electrons
+            settings.cutoff = {"energy_photon": cfg.photon_cutoff_ev}
 
         # Windowed temperature interpolation between library temperatures
         settings.temperature = {
@@ -278,6 +284,9 @@ class GCR:
         cfg = self.config
         xs_path = build_cross_section_library(cfg, self.output_dir)
         openmc.config['cross_sections'] = xs_path
+        
+        if cfg.photon_transport:
+            tally_factories.apply_particle_filter(self.all_tallies)
 
         self.model.tallies = openmc.Tallies(self.all_tallies)
         self.model.export_to_xml(self.output_dir)

@@ -25,22 +25,28 @@ from gcr import plotting, tallies
 from gcr.analysis.mass_estimate import print_u233_mass_estimate
 from gcr.analysis.four_factors import add_four_factor_tallies
 
+from scripts.sensitivity_analysis import print_material_temperatures
+
+OUTPUT_DIR = 'reference_runs/various/'
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def make_config() -> GCRConfig:
     """The reference configuration.  Change parameters HERE (or load a JSON
     snapshot with GCRConfig.from_json) -- never by editing the package."""
     return GCRConfig(
         cross_sections_dir='libraries_xs/jeff40_hdf5',
+        photon_cross_sections_dir='libraries_xs/photon_hdf5',
         n_axial_layers=10,
         h2_density_profile_path='settings/h2_density_profile.npz',
         # Example overrides:
         # L=6.0 * 30.48,
-        # th_atom_fraction=0.10,       # thorium sweep, one line
+        # th_atom_fraction=0.10,       # thorium sweep
         # seed=1,                      # bit-reproducible run
-        batches=250,
-        inactive=50,
-        particles=500_000,
+        batches=50,
+        inactive=15,
+        particles=50_000,
         #temperature_BeO=1100,
+        photon_transport=True,
     )
 
 
@@ -105,9 +111,11 @@ def main() -> None:
         return
 
     core = GCR(config)          # include_tie_rods=False: rods stay OFF
+    core.output_dir = OUTPUT_DIR
     core.build()                # -> openmc.Model; config JSON snapshot at export
 
     print_u233_mass_estimate(core.materials, config)
+    print_material_temperatures(core)
 
     add_reference_tallies(core, config)
 
@@ -116,7 +124,6 @@ def main() -> None:
 
     if args.geo_plot:
         return
-
     core.run(dry_run=args.dry_run, map_geometry=True)
     if args.dry_run:
         return

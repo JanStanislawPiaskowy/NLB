@@ -266,3 +266,18 @@ def unweighted_lifetime_tally() -> TallyBundle:
     print('Unweighted lifetime tally created: inverse-velocity, '
           'nu-fission, absorption (global, unfiltered)')
     return TallyBundle(tallies=[tally])
+
+def apply_particle_filter(tallies: openmc.Tallies) -> None:
+    """
+    Restrict the tallies to neutron-only, otherwise openmc throws a warning/error,
+    and the tally collected does not reflect what you are looking for.
+
+    inverse velocity was a hard error
+    """
+
+    neutron_filter = openmc.ParticleFilter(['neutron'])
+    for tally in tallies:
+        if not any(isinstance(f, openmc.ParticleFilter) for f in tally.filters):
+            tally.filters = tally.filters + [neutron_filter]
+            # particle filter is added to the tally only if I do not explicitly
+            # define another particle filter beforehand

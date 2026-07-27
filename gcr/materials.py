@@ -79,6 +79,23 @@ def _seeded_hydrogen(name: str, T: float, rho_h_gcc: float,
         material.set_density('g/cm3', rho_h_gcc)
     return material
 
+def _photon_elements(nuclides) -> list:
+    """
+    Thus function just outputs unique elements symbol given nuclide names>
+    It is done for photon data where particular isotopes don't matter.
+    It is done like so, thus there is a sngle source of truth (the list)
+    And I dont have to declare each time.
+
+    Also god bless Claude for finding such function as ATOMIC_SYMBOL. What an amazing 
+    feature otherwise hidden in the source file. It is Sunday, i am cooked.
+    """
+
+    sorted_tuple = sorted({
+        openmc.data.ATOMIC_SYMBOL[openmc.data.zam(nuclide)[0]]
+        for nuclide in nuclides
+        })
+    return sorted_tuple
+
 def build_materials(cfg: GCRConfig) -> dict:
     """Define all base materials.  Purely composition + density: no file I/O.
 
@@ -106,7 +123,7 @@ def build_materials(cfg: GCRConfig) -> dict:
     BeO.add_element('O', 1.0)
     BeO.set_density('g/cm3', cfg.density_BeO)
 
-    graphite = openmc.Material(name='C', temperature=cfg.temperature_graphite)
+    graphite = openmc.Material(name='graphite', temperature=cfg.temperature_graphite)
     graphite.add_element('C', 1.0)
     graphite.set_density('g/cm3',cfg.density_graphite)
 
@@ -309,23 +326,26 @@ def apply_beo_sab(cfg: GCRConfig, materials: dict, t_max: float = 1200.0,
         mat._sab = []
 
 def apply_graphite_sab(cfg: GCRConfig, materials: dict, t_max: float = 3000.0,
-                       sab_tables: tuple = ('c_Graphite')) -> None:
+                       sab_tables: tuple = ('c_Graphite', 'else')) -> None:
     """Conditionally attach graphite S(a,b) TSL.
 
     The maximum temperature of 3000K found in the JEFF-4.0 evaluation.
 
     this function is a copy of the apply_beo_sab function just above
     """
-
-    if 'C' not in materials:
+    
+    print('started apply graphite')
+    #print(materials)
+    if 'graphite' not in materials:
         return
-
+    print(os.path.join(cfg.cross_sections_dir, f'{sab_tables[0]}.h5'))
     available = tuple(
             t for t in sab_tables
             if os.path.isfile(os.path.join(cfg.cross_sections_dir, f'{t}.h5'))
             )
-
-    mat = materials['C']
+    print('inside apply graphite, t_max:', t_max, 't:', materials['graphite'].temperature)
+    print(bool(available))
+    mat = materials['graphite']
     if available and mat.temperature <= t_max:
         attached = {name for name, _ in (mat._sab or [])}
         for table in available:
@@ -336,6 +356,7 @@ def apply_graphite_sab(cfg: GCRConfig, materials: dict, t_max: float = 3000.0,
               f"but the graphite temperature {mat.temperature}K exceeds the maximum temperature {t_max}K")
     else:
         mat._sab = []
+
 def apply_fuel_density_alpha(materials: dict, alpha: float) -> None:
     """Scale every fuel material's density by `alpha` (once).
 
@@ -390,6 +411,15 @@ def build_cross_section_library(cfg: GCRConfig, output_dir: str) -> str:
             print(f"  S(a,b) table '{nuclide}' absent in "
                   f'{cfg.cross_sections_dir}; BeO runs free-gas.')
 
+    if cfg.photon_transport:
+        for element in _photon_elements(REQUIRED_NUCLIDES):
+            photon_h5_file = os.path.join(cfg.photon_cross_sections_dir, f'{element}_photon.h5')
+            if not os.path.isfile(photon_h5_file):
+                raise FileNotFoundError(
+                        f'Photon cross-section file not found: {photon_h5_file}\n'
+                        'Check the file or turn the photon_transport of by setting = False'
+                        )
+            library.register_file(photon_h5_file)
     xs_xml_path = os.path.abspath(os.path.join(output_dir, 'cross_sections.xml'))
     library.export_to_xml(xs_xml_path)
     return xs_xml_path

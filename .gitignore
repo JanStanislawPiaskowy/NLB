@@ -34,6 +34,7 @@ joberr.txt
 settings/core
 scripts/quickie.py
 scripts/run_reference.py
+reference_runs/
 
 # Vim
 *~
