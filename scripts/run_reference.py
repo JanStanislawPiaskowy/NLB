@@ -42,16 +42,16 @@ def make_config() -> GCRConfig:
         # L=6.0 * 30.48,
         # th_atom_fraction=0.10,       # thorium sweep
         # seed=1,                      # bit-reproducible run
-        batches=50,
-        inactive=15,
-        particles=50_000,
-        #temperature_BeO=1100,
-        photon_transport=True,
+        batches=250,
+        inactive=50,
+        particles=500_000,
+        temperature_BeO=1200,
+        photon_transport=False,
     )
 
 
 def add_reference_tallies(core: GCR, config: GCRConfig) -> None:
-    """The reference tally set.  Order does not matter any more."""
+    """The reference tally set."""
     core.add_power_tally()
     core.add_kinetics_tally(num_groups=6)
     core.add_midplane_flux_tally(slice_thickness=20.0)

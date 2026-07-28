@@ -393,7 +393,7 @@ def add_heating_tallies(
     t = openmc.Tally(name=T_HEATING)
     t.filters = [openmc.CellFilter(cell_ids), openmc.ParticleFilter(particles)]
     t.scores = [score]
-    t.estimator = "tracklength"
+    #t.estimator = "tracklength"
 
     registered = [t]
 
@@ -424,7 +424,7 @@ def add_heating_tallies(
         tm.filters = [openmc.MeshFilter(mesh),
                       openmc.ParticleFilter(particles)]
         tm.scores = [score]
-        tm.estimator = "tracklength"
+       # tm.estimator = "tracklength"
         registered.append(tm)
 
     core.register_tally(*registered)
@@ -622,12 +622,18 @@ def heating_report(
     print("      validation target; shown for context only.")
     print()
     print(f"  QA: sum(heating)/Q_recov = {frac_captured:.4f}")
-    print("      Expect ~0.90.  The shortfall is delayed beta + delayed gamma")
-    print("      energy, which prompt transport does not carry.  If this is")
-    print("      near 1.00 something is double counting; if below ~0.85 check")
-    print("      that photon production data exists for the major nuclides.")
-    print(f"      Total power unaccounted for: "
+    if mode == "coupled":
+        print("      Expect ~0.90.  The shortfall is delayed beta + delayed gamma")
+        print("      energy, which prompt transport does not carry.  If this is")
+        print("      near 1.00 something is double counting; if below ~0.85 check")
+        print("      that photon production data exists for the major nuclides.")
+        print(f"      Total power unaccounted for: "
           f"{(1 - frac_captured) * power_W / 1e6:.1f} MW")
+    else:
+        print(" Expecte ~1.0. heating-local deposits secondary photon energy")
+        print(" at the collision site, so nothing escapes the tally. Slightly")
+        print(" abive 1.0 is normal because KERMA included non-fission reactions")
+        print(" mainly radiative capture, that fission-q-recoverable omits")
     print()
 
     # ------------------------------------------------------------------- files

@@ -27,6 +27,7 @@ scheduler-stderr.txt
 scheduler-stdout.txt
 OLD_*/
 sensitivity_results_*/
+sweep_runs/
 logs/
 submits/
 jobout.txt

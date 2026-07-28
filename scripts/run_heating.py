@@ -38,6 +38,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import openmc
+import numpy as np
 
 from gcr import GCRConfig, GCR
 from gcr.analysis import heating
@@ -46,15 +47,15 @@ from gcr.analysis import heating
 # SETTINGS
 # =============================================================================
 
-MODE = 'inventory'                 # 'inventory' | 'local' | 'coupled' | 'report'
+MODE = 'coupled'                 # 'inventory' | 'local' | 'coupled' | 'report'
 
 POWER_W = 4.6e9
 OUT_DIR = f'heating_runs/{MODE}'
 
 # --- transport ---------------------------------------------------------------
-N_PARTICLES = 200_000
-N_BATCHES = 220
-N_INACTIVE = 20
+N_PARTICLES = 500_000
+N_BATCHES = 250
+N_INACTIVE = 50
 PHOTON_CUTOFF_EV = 1.0e3         # raise to 1e4 for speed, at some accuracy cost
 
 # --- nuclear data ------------------------------------------------------------
@@ -129,11 +130,19 @@ def resolve_region_map(core: GCR) -> dict:
 
 def build_mesh(core: GCR) -> openmc.RegularMesh:
     """Coarse Cartesian mesh spanning the model bounding box."""
+    cfg = core.config
+    r = 160.9
+    z_lo = -37.0
+    z_hi = 260.9
+
     mesh = openmc.RegularMesh()
     mesh.dimension = MESH_MAP_DIM
-    bb = core.geometry.bounding_box
-    mesh.lower_left = bb.lower_left
-    mesh.upper_right = bb.upper_right
+    mesh.lower_left = (-r, -r, z_lo)
+    mesh.upper_right = (r, r, z_hi)
+
+    if not (np.all(np.isfinite(mesh.lower_left)) and np.all(np.isfinite(mesh.upper_right))):
+        raise ValueError(f"non-finite mesh bounds: {mesh.lower_left}"
+                         f"to {mesh.upper_right}")
     return mesh
 
 

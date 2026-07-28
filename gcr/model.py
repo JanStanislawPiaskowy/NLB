@@ -110,7 +110,7 @@ class GCR:
         #    the scaling covers every fuel material exactly once.
         self.materials = build_materials(cfg)
         self.layered = build_layered_materials(cfg, self.materials)
-        apply_beo_sab(cfg, self.materials)
+        #apply_beo_sab(cfg, self.materials)
         apply_graphite_sab(cfg, self.materials)
         apply_fuel_density_alpha(self.materials, cfg.fuel_density_alpha)
 
