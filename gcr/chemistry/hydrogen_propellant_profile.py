@@ -3,9 +3,10 @@ import numpy as np
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 import os
+import sys
 
 # ── 1. Import gas ─────────────────────────────────────────────────────────────
-gas = ct.Solution('h2_dissociation_nasa9.yaml', 'h2_dissociation_RK')
+gas = ct.Solution('/mnt/d/Documents/GitHub/NLB/gcr/chemistry/h2_dissociation_nasa9.yaml', 'h2_dissociation_RK')
 
 iH2 = gas.species_index('H2')
 iH  = gas.species_index('H')
@@ -614,14 +615,14 @@ print("\nAll figures saved to figures/ folder.")
 #
 _profile_path = 'settings/h2_density_profile.npz'
 
-np.savez(
-    _profile_path,
-    x_m = sol_fin.t,
-    rho_kgm3 = rho_fin,
-    T_K = sol_fin.y[0],
-    p_Pa = sol_fin.y[1]
-)
-print(f"Finite-rate H₂ profile saved → {_profile_path}")
+#np.savez(
+#    _profile_path,
+#    x_m = sol_fin.t,
+#    rho_kgm3 = rho_fin,
+#    T_K = sol_fin.y[0],
+#    p_Pa = sol_fin.y[1]
+#)
+#print(f"Finite-rate H₂ profile saved → {_profile_path}")
 
 
 # ── 12. Power-perturbed profiles ─────────────────────────────────────────────
@@ -630,104 +631,104 @@ print(f"Finite-rate H₂ profile saved → {_profile_path}")
 # re-integrated here -- only the finite-rate profile is consumed by the OpenMC
 # GCR model (via h2_density_profile_path).
 
-POWER_DELTAS = [-0.10, -0.05, +0.05, +0.10]  # fractional change in Q_total
-
-
-def _power_tag(delta):
-    sign = 'p' if delta >= 0 else 'm'
-    return f'power_{sign}{abs(delta) * 100:02.0f}pct'
-
-
-def solve_and_save_finite_rate(scale, out_path):
-    """Re-integrate the finite-rate ODE with Q_total multiplied by `scale`
-    and save the resulting x / rho / T / p profile to `out_path`.
-
-    Reuses the module-level inlet conditions, geometry and solver settings.
-    Returns (sol, rho_array) for downstream plotting.
-    """
-    global Q_SCALE
-    Q_SCALE_backup = Q_SCALE
-    Q_SCALE = scale
-    try:
-        sol = solve_ivp(
-            rhs_finite_rate, (0.0, L), [T0, p0, 1.0],
-            method='BDF',
-            t_eval=x_space,
-            rtol=1e-6, atol=[1e-1, 1e0, 1e-10],
-            events=choke_event_finite,
-            max_step=L / 200,
-        )
-        if not sol.success:
-            print(f"  Solver warning (scale={scale:+.3f}): {sol.message}")
-        if sol.t_events[0].size:
-            print(f"  *** Flow choked at x = {sol.t_events[0][0]:.4f} m "
-                  f"(scale = {scale:.3f}) ***")
-
-        rho, _u, _D, _M, _XH2, _XH = postprocess_finite_rate(sol)
-
-        os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
-        np.savez(
-            out_path,
-            x_m=sol.t,
-            rho_kgm3=rho,
-            T_K=sol.y[0],
-            p_Pa=sol.y[1],
-        )
-        print(f"  Outlet: T = {sol.y[0][-1]:7.1f} K   "
-              f"p = {sol.y[1][-1] / 101325:6.1f} atm   "
-              f"rho = {rho[-1]:6.3f} kg/m³")
-        print(f"  Saved → {out_path}")
-        return sol, rho
-    finally:
-        Q_SCALE = Q_SCALE_backup
-
-
-print("\n" + "=" * 70)
-print("POWER PERTURBATION SWEEP (finite-rate only)")
-print("=" * 70)
-
-perturbation_results = {}
-for delta in POWER_DELTAS:
-    scale = 1.0 + delta
-    tag = _power_tag(delta)
-    out_path = f'settings/h2_density_profile_{tag}.npz'
-    print(f"\n>>> Power {delta * 100:+.0f}%  (Q scale = {scale:.3f})")
-    sol, rho = solve_and_save_finite_rate(scale, out_path)
-    perturbation_results[delta] = (sol, rho)
-
-# Comparison plot: baseline + all perturbations
-fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-axes[0].set_xlabel('x / L');  axes[0].set_ylabel('T [K]')
-axes[0].set_title('Temperature')
-axes[1].set_xlabel('x / L');  axes[1].set_ylabel('ρ [kg/m³]')
-axes[1].set_title('Density')
-axes[2].set_xlabel('x / L');  axes[2].set_ylabel('p [atm]')
-axes[2].set_title('Pressure')
-
-# Baseline (solid black)
-axes[0].plot(sol_fin.t / L, sol_fin.y[0],          'k-', lw=2.0, label='baseline')
-axes[1].plot(sol_fin.t / L, rho_fin,               'k-', lw=2.0, label='baseline')
-axes[2].plot(sol_fin.t / L, sol_fin.y[1] / 101325, 'k-', lw=2.0, label='baseline')
-
-# Perturbations — blue for negative, red for positive, shade by magnitude
-cmap = plt.cm.coolwarm
-max_abs_delta = max(abs(d) for d in POWER_DELTAS)
-for delta in sorted(perturbation_results.keys()):
-    sol, rho = perturbation_results[delta]
-    c = cmap(0.5 + 0.5 * delta / max_abs_delta)
-    label = f'{delta * 100:+.0f} %'
-    axes[0].plot(sol.t / L, sol.y[0],          color=c, lw=1.5, ls='--', label=label)
-    axes[1].plot(sol.t / L, rho,               color=c, lw=1.5, ls='--', label=label)
-    axes[2].plot(sol.t / L, sol.y[1] / 101325, color=c, lw=1.5, ls='--', label=label)
-
-for ax in axes:
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-fig.suptitle('Finite-rate H₂ profile: cavity-power sensitivity')
-fig.tight_layout()
-fig.savefig('figures/power_perturbation_profiles.png', dpi=150, bbox_inches='tight')
-plt.show()
-
-print("\n" + "=" * 70)
-print(f"Done. {len(POWER_DELTAS)} perturbed profiles written to settings/.")
-print("=" * 70)
+#POWER_DELTAS = [-0.10, -0.05, +0.05, +0.10]  # fractional change in Q_total
+#
+#
+#def _power_tag(delta):
+#    sign = 'p' if delta >= 0 else 'm'
+#    return f'power_{sign}{abs(delta) * 100:02.0f}pct'
+#
+#
+#def solve_and_save_finite_rate(scale, out_path):
+#    """Re-integrate the finite-rate ODE with Q_total multiplied by `scale`
+#    and save the resulting x / rho / T / p profile to `out_path`.
+#
+#    Reuses the module-level inlet conditions, geometry and solver settings.
+#    Returns (sol, rho_array) for downstream plotting.
+#    """
+#    global Q_SCALE
+#    Q_SCALE_backup = Q_SCALE
+#    Q_SCALE = scale
+#    try:
+#        sol = solve_ivp(
+#            rhs_finite_rate, (0.0, L), [T0, p0, 1.0],
+#            method='BDF',
+#            t_eval=x_space,
+#            rtol=1e-6, atol=[1e-1, 1e0, 1e-10],
+#            events=choke_event_finite,
+#            max_step=L / 200,
+#        )
+#        if not sol.success:
+#            print(f"  Solver warning (scale={scale:+.3f}): {sol.message}")
+#        if sol.t_events[0].size:
+#            print(f"  *** Flow choked at x = {sol.t_events[0][0]:.4f} m "
+#                  f"(scale = {scale:.3f}) ***")
+#
+#        rho, _u, _D, _M, _XH2, _XH = postprocess_finite_rate(sol)
+#
+#        os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
+#        np.savez(
+#            out_path,
+#            x_m=sol.t,
+#            rho_kgm3=rho,
+#            T_K=sol.y[0],
+#            p_Pa=sol.y[1],
+#        )
+#        print(f"  Outlet: T = {sol.y[0][-1]:7.1f} K   "
+#              f"p = {sol.y[1][-1] / 101325:6.1f} atm   "
+#              f"rho = {rho[-1]:6.3f} kg/m³")
+#        print(f"  Saved → {out_path}")
+#        return sol, rho
+#    finally:
+#        Q_SCALE = Q_SCALE_backup
+#
+#
+#print("\n" + "=" * 70)
+#print("POWER PERTURBATION SWEEP (finite-rate only)")
+#print("=" * 70)
+#
+#perturbation_results = {}
+#for delta in POWER_DELTAS:
+#    scale = 1.0 + delta
+#    tag = _power_tag(delta)
+#    out_path = f'settings/h2_density_profile_{tag}.npz'
+#    print(f"\n>>> Power {delta * 100:+.0f}%  (Q scale = {scale:.3f})")
+#    sol, rho = solve_and_save_finite_rate(scale, out_path)
+#    perturbation_results[delta] = (sol, rho)
+#
+## Comparison plot: baseline + all perturbations
+#fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+#axes[0].set_xlabel('x / L');  axes[0].set_ylabel('T [K]')
+#axes[0].set_title('Temperature')
+#axes[1].set_xlabel('x / L');  axes[1].set_ylabel('ρ [kg/m³]')
+#axes[1].set_title('Density')
+#axes[2].set_xlabel('x / L');  axes[2].set_ylabel('p [atm]')
+#axes[2].set_title('Pressure')
+#
+## Baseline (solid black)
+#axes[0].plot(sol_fin.t / L, sol_fin.y[0],          'k-', lw=2.0, label='baseline')
+#axes[1].plot(sol_fin.t / L, rho_fin,               'k-', lw=2.0, label='baseline')
+#axes[2].plot(sol_fin.t / L, sol_fin.y[1] / 101325, 'k-', lw=2.0, label='baseline')
+#
+## Perturbations — blue for negative, red for positive, shade by magnitude
+#cmap = plt.cm.coolwarm
+#max_abs_delta = max(abs(d) for d in POWER_DELTAS)
+#for delta in sorted(perturbation_results.keys()):
+#    sol, rho = perturbation_results[delta]
+#    c = cmap(0.5 + 0.5 * delta / max_abs_delta)
+#    label = f'{delta * 100:+.0f} %'
+#    axes[0].plot(sol.t / L, sol.y[0],          color=c, lw=1.5, ls='--', label=label)
+#    axes[1].plot(sol.t / L, rho,               color=c, lw=1.5, ls='--', label=label)
+#    axes[2].plot(sol.t / L, sol.y[1] / 101325, color=c, lw=1.5, ls='--', label=label)
+#
+#for ax in axes:
+#    ax.grid(alpha=0.3)
+#    ax.legend(fontsize=8)
+#fig.suptitle('Finite-rate H₂ profile: cavity-power sensitivity')
+#fig.tight_layout()
+#fig.savefig('figures/power_perturbation_profiles.png', dpi=150, bbox_inches='tight')
+#plt.show()
+#
+#print("\n" + "=" * 70)
+#print(f"Done. {len(POWER_DELTAS)} perturbed profiles written to settings/.")
+#print("=" * 70)

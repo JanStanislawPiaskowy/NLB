@@ -1,0 +1,110 @@
+description: |-
+  Minimal H2/H dissociation mechanism with NASA 9-coefficient polynomials
+  from the NASA Glenn thermodynamic database (McBride, Zehe & Gordon,
+  NASA TP-2002-211556).  Valid 200 – 20 000 K.
+
+  Source for thermo data:  NASA CEA thermo.inp / ThermoBuild
+  (https://cearun.grc.nasa.gov/ThermoBuild/)
+
+  Only two species (H2, H) and one reversible reaction (2 H + M <=> H2 + M).
+  The Redlich-Kwong EOS entries are retained from the original h2o2.yaml so
+  that high-pressure cases can use the ohmech-RK phase.
+
+units: {length: cm, time: s, quantity: mol, activation-energy: cal/mol}
+
+phases:
+- name: h2_dissociation
+  thermo: ideal-gas
+  elements: [H]
+  species: [H2, H]
+  kinetics: gas
+  transport: mixture-averaged
+  state: {T: 300.0, P: 1 atm}
+
+- name: h2_dissociation_RK
+  thermo: Redlich-Kwong
+  elements: [H]
+  species: [H2, H]
+  kinetics: gas
+  transport: mixture-averaged
+  state: {T: 300.0, P: 1 atm}
+
+species:
+
+# ── H2  (diatomic hydrogen) ─────────────────────────────────────────────────
+# Source: NASA CEA thermo.inp  –  tpis78  –  3 temperature intervals
+# 200 – 1000 – 6000 – 20000 K
+- name: H2
+  composition: {H: 2}
+  thermo:
+    model: NASA9
+    temperature-ranges: [200.0, 1000.0, 6000.0, 20000.0]
+    data:
+    # 200 – 1000 K
+    - [ 4.078323210E+04, -8.009186040E+02,  8.214702010E+00,
+       -1.269714457E-02,  1.753605076E-05, -1.202860270E-08,
+        3.368093490E-12,  2.682484665E+03, -3.043788844E+01]
+    # 1000 – 6000 K
+    - [ 5.608128010E+05, -8.371504740E+02,  2.975364532E+00,
+        1.252249124E-03, -3.740716190E-07,  5.936625200E-11,
+       -3.606994100E-15,  5.339824410E+03, -2.202774769E+00]
+    # 6000 – 20000 K
+    - [ 4.966884120E+08, -3.147547149E+05,  7.984121880E+01,
+       -8.414789210E-03,  4.753248350E-07, -1.371873492E-11,
+        1.605461756E-16,  2.488433516E+06, -6.695728110E+02]
+  transport:
+    model: gas
+    geometry: linear
+    well-depth: 38.0
+    diameter: 2.92
+    polarizability: 0.79
+    rotational-relaxation: 280.0
+  equation-of-state:
+    model: Redlich-Kwong
+    a: 1.43319e+11
+    b: 18.42802577
+
+# ── H  (atomic hydrogen) ────────────────────────────────────────────────────
+# Source: NASA CEA thermo.inp  –  L 7/88  –  3 temperature intervals
+# 200 – 1000 – 6000 – 20000 K
+- name: H
+  composition: {H: 1}
+  thermo:
+    model: NASA9
+    temperature-ranges: [200.0, 1000.0, 6000.0, 20000.0]
+    data:
+    # 200 – 1000 K
+    - [ 0.000000000E+00,  0.000000000E+00,  2.500000000E+00,
+        0.000000000E+00,  0.000000000E+00,  0.000000000E+00,
+        0.000000000E+00,  2.547370801E+04, -4.466828530E-01]
+    # 1000 – 6000 K
+    - [ 6.078774250E+01, -1.819354417E-01,  2.500211817E+00,
+       -1.226512864E-07,  3.732876330E-11, -5.687744560E-15,
+        3.410210197E-19,  2.547486398E+04, -4.481917770E-01]
+    # 6000 – 20000 K
+    - [ 2.173757694E+08, -1.312035403E+05,  3.399174200E+01,
+       -3.813999680E-03,  2.432854837E-07, -7.694275540E-12,
+        9.644105630E-17,  1.067638086E+06, -2.742301051E+02]
+  transport:
+    model: gas
+    geometry: atom
+    well-depth: 145.0
+    diameter: 2.05
+  equation-of-state:
+    model: Redlich-Kwong
+    a: 1.32125e+11
+    b: 17.63395812
+
+reactions:
+
+# ── H2 dissociation / recombination ─────────────────────────────────────────
+# 2 H + M <=> H2 + M   (three-body recombination)
+# Rate from GRI-Mech 3.0 (same as h2o2.yaml Reaction 12)
+- equation: 2 H + M <=> H2 + M
+  type: three-body
+  rate-constant: {A: 1.0e+18, b: -1.0, Ea: 0.0}
+  efficiencies: {H2: 0.0}
+
+# The second channel with H2 as chaperon (Reaction 13 from h2o2.yaml)
+- equation: 2 H + H2 <=> 2 H2
+  rate-constant: {A: 9.0e+16, b: -0.6, Ea: 0.0}
