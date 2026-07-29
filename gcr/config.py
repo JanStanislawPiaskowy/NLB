@@ -156,6 +156,7 @@ class GCRConfig:
     particles: int = 600_000
     temperature_tolerance: float = 400.0  # [K] settings.temperature interpolation window
     seed: int | None = None               # None = OpenMC default; set for bit-reproducible runs
+    ifp_n_generation: int = 5  # number of generations to follow until added to tally for IFP calculations
 
     # --- Derived values ---------------------
     d_tw_outer: float = field(init=False)
@@ -172,6 +173,13 @@ class GCRConfig:
     # check out "Implementation and Validation of Photon Trasport in OpenMC" by ANL
     # publicatons.anl.gib/anlpubs/2018/12/149145.pdf
     photon_cross_sections_dir: str = '' # if left empty, it should fall back on cross_sections_dir
+
+    # ~~~~~~ Shannon Entropy ~~~~~~~~~~~~~~
+    # for fission source convergence diagnostics
+    entropy_mesh: bool = True
+    entropy_bins_xy: int = 9
+    entropy_bins_z: int = 10    # same amount as axial layers
+    entropy_margin: float = 5.0 # [cm] on top of the fuel radius
 
 
     def __post_init__(self):

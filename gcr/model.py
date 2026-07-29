@@ -171,7 +171,7 @@ class GCR:
         settings.particles = cfg.particles
 
         # IFP for kinetic parameters (beta_eff, Lambda_eff)
-        settings.ifp_n_generation = min(5, cfg.inactive) # number of generation after which neutron is added to the tally
+        settings.ifp_n_generation = min(cfg.ifp_n_generation, cfg.inactive - 1) # number of generation after which neutron is added to the tally
         # cannot be bigger than the inactive batches
         # check out the documentation because I am still in the process of understanding this method
 
@@ -181,16 +181,23 @@ class GCR:
             settings.electron_treatment = "ttb"  #create secondary bremstrahlung photons, alternative 'led' = local deposition for electrons
             settings.cutoff = {"energy_photon": cfg.photon_cutoff_ev}
 
-        # Windowed temperature interpolation between library temperatures
+        # Windowed temperature interpolation between evaluated temperatures
         settings.temperature = {
             'method': 'interpolation',
             'tolerance': cfg.temperature_tolerance,
             'multipole': False,
         }
 
+        if cfg.entropy_mesh:
+            lo, hi = self.fissile_envelope()  # copy the mesh so is same as fissile mesh
+            mesh = openmc.RegularMesh(name='entropy mesh')
+            mesh.dimension = [cfg.entropy_bins_xy, cfg.entropy_bins_xy, cfg.entropy_bins_z]
+            mesh.lower_left = lo.tolist()
+            mesh.upper_right = hi.tolist()
+            settings.entropy_mesh = mesh
+
         if cfg.seed is not None:
-            # A fixed seed makes runs bit-reproducible -- essential for the
-            # regression workflow in scripts/regression_k.py.
+            # A fixed seed makes runs bit-reproducible -- 
             settings.seed = cfg.seed
 
         sources = []
@@ -261,6 +268,7 @@ class GCR:
 
     def add_fission_spectrum_tally(self) -> None:
         self.register_tally(tally_factories.fission_spectrum_tally(self.materials))
+
     def add_unweighted_lifetime_tally(self) -> None:
         self.register_tally(tally_factories.unweighted_lifetime_tally())
 
@@ -399,3 +407,41 @@ class GCR:
             self.config, bundle.mesh, bundle.meta,
             statepoint_path or self.statepoint_path,
             power_W=power_W, save=save, figures_dir=figures_dir)
+
+    # ------------
+    # Helper functions
+    # --------------
+
+    def fissile_envelope(self, pad_radius: float = None, margin: float = None) -> tuple:
+        """
+        Bounding box for everything that can fission
+        """
+
+        cfg = self.config
+        
+        if pad_radius is None:
+            R = cfg.R2 
+        else:
+            R = pad_radius
+        
+        if margin is None:
+            m = cfg.entropy_margin
+        else:
+            m = margin
+
+        z_local = (-cfg.moderator_top_thickness, 0.0, cfg.L)
+
+        lo = np.full(3, np.inf)
+        hi = np.full(3, -np.inf)
+
+        for cavity in self.cavities:
+            t = np.asarray(cavity.translation, dtype=float)
+            axis = np.asarray(cavity.rotation) @ np.array([0.0, 0.0, 1.0])
+            pad = R * np.sqrt(np.clip(1.0 - axis ** 2, 0.0, 1.0))
+
+            for z in z_local:
+                p = t + axis * z
+                lo = np.minimum(lo, p - pad)
+                hi = np.maximum(hi, p + pad)
+
+        return lo - m, hi + m 
