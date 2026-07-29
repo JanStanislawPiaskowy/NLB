@@ -21,6 +21,8 @@ RETURNS cells.  Two interface points deserve attention:
 import numpy as np
 import openmc
 
+from dataclasses import dataclass
+
 from ..config import GCRConfig
 from .hexmaths import bounding_sphere_offset
 from .tie_rods import TieRods
@@ -46,7 +48,8 @@ def create_bounding_sphere(cfg: GCRConfig, offset: float = None) -> openmc.Spher
 def build_moderator(cfg: GCRConfig, materials: dict, cavities: list,
                     end_curvature_sphere: openmc.Sphere,
                     tie_rods: TieRods = None,
-                    inner_radius: float = None) -> list:
+                    inner_radius: float = None,
+                    outer_boundary: str = 'vacuum') -> list:
     """The big graphite cone around all seven cavity slots.
 
     Constructed as (cone interior) minus (each transformed hexagonal slot)
@@ -54,23 +57,11 @@ def build_moderator(cfg: GCRConfig, materials: dict, cavities: list,
     regions, if rods were built).
     """
     graphite = materials['graphite']
-    R_in = inner_radius if inner_radius is not None else cfg.moderator_cone_inner_radius
-
-    alpha = 3 * cfg.tilt
-    L = cfg.L
-    L_conv = cfg.L_conv
-    t_mod_top = cfg.moderator_top_thickness
-
-    H = L + L_conv + t_mod_top
-    R_out = np.abs(np.tan(alpha)) * H + R_in
-
-    h = H * (1 / (R_out / R_in - 1))
-    GraphiteOuter = openmc.ZCone(x0=0, y0=0, z0=-h, r2=(R_in / h) ** 2,
-                                 name='Graphite Moderator Cone', boundary_type='vacuum')
+    GraphiteOuter, apex_z, alpha = moderator_cone(cfg, outer_boundary)
     # These two planes are created for their vacuum boundary side effect and
     # as transform templates below (as in the original).
-    openmc.ZPlane(z0=-t_mod_top, boundary_type='vacuum', name='PlaneStartMod')
-    PlaneNozzleEnd = openmc.ZPlane(z0=L + L_conv + 10.0, boundary_type='vacuum',
+    openmc.ZPlane(z0=-cfg.moderator_top_thickness, boundary_type='vacuum', name='PlaneStartMod')
+    PlaneNozzleEnd = openmc.ZPlane(z0=cfg.L + cfg.L_conv + 10.0, boundary_type='vacuum',
                                    name='PlaneNozzleEnd')
 
     GraphiteRegion = -GraphiteOuter
@@ -118,7 +109,9 @@ def build_moderator(cfg: GCRConfig, materials: dict, cavities: list,
 
     moderator = openmc.Cell(fill=graphite, region=GraphiteRegion,
                             name='graphite moderator')
-    return [moderator]
+    return ModeratorAssembly(cells=[moderator], outer_cone=GraphiteOuter,
+                             cone_apex_z=apex_z, cone_half_angle=alpha,
+                             start_planes=StartPlanes, end_planes=EndPlanes)
 
 
 def build_end_moderator(cfg: GCRConfig, materials: dict, cavities: list) -> list:
@@ -263,3 +256,32 @@ def build_nozzle_end(cfg: GCRConfig, materials: dict, cavities: list,
         cells += [nozzle_cell, cone_cell, throat_cell, div_cell]
 
     return cells
+
+@dataclass
+class ModeratorAssembly:
+    """
+    Cells and surfaces that bound the modreators
+    """
+    cells: list
+    outer_cone: openmc.ZCone
+    cone_apex_z: float
+    cone_half_angle: float
+    start_planes: list
+    end_planes: list
+
+def moderator_cone(cfg: GCRConfig, boundary_type: str = 'vacuum'):
+    """
+    The definition for graphite cone.
+
+    Returns (cone, apex_z, alpha)
+    """
+    alpha = abs(3 * cfg.tilt)
+    R_in = cfg.moderator_cone_inner_radius
+    H = cfg.L + cfg.L_conv + cfg.moderator_top_thickness
+    R_out = np.tan(alpha) * H + R_in
+    h = H / (R_out / R_in - 1.)
+    cone = openmc.ZCone(x0=0, y0=0, z0=-h, r2 = (R_in / h) ** 2,
+                        name = 'Graphite Moderator Cone',
+                        boundary_type=boundary_type)
+
+    return cone, -h, alpha

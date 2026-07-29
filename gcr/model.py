@@ -51,6 +51,7 @@ from .geometry.cavity import build_cavity
 from .geometry.tie_rods import build_tie_rods
 from .geometry.moderator import (build_end_moderator, build_moderator,
                                  build_nozzle_end, create_bounding_sphere)
+from .geometry.pressure_vessel import build_pressure_vessel
 from .geometry.overlaps import resolve_cavity_overlaps
 from . import tallies as tally_factories
 from .tallies import TallyBundle
@@ -130,8 +131,13 @@ class GCR:
             self.cells.extend(self.tie_rods.cells)
 
         # 5) Everything outside the slots.
-        self.cells += build_moderator(cfg, self.materials, self.cavities,
-                                      self.bounding_sphere, tie_rods=self.tie_rods)
+        moderator = build_moderator(
+                cfg, self.materials, self.cavities, self.bounding_sphere,
+                tie_rods=self.tie_rods,
+                outer_boundary='transmission' if cfg.include_pressure_vessel else 'vacuum')
+        self.cells += moderator.cells
+        if cfg.include_pressure_vessel:
+            self.cells += build_pressure_vessel(cfg, self.materials, moderator, self.bounding_sphere)
         self.cells += build_end_moderator(cfg, self.materials, self.cavities)
         self.cells += build_nozzle_end(cfg, self.materials, self.cavities,
                                        layered=self.layered,

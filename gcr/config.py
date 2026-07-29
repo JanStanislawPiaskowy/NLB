@@ -46,6 +46,10 @@ OPTIONAL_SAB_NUCLIDES = [
     'c_Graphite',
 ]
 
+PRESSURE_VESSEL_NUCLIDES = [
+        'Al27', 'Mg24', 'Mg25', 'Mg26',
+        'N14', 'N15',
+        ]
 
 @dataclass
 class GCRConfig:
@@ -85,6 +89,7 @@ class GCRConfig:
     temperature_BeO: float = 1698.333  # [K], F-910093-37 p.55
     temperature_graphite: float = 2392.0  # [K], F-910093-37
     temperature_h2_general: float = 4000.0  # [K]
+    temperature_h2_tori:    float = 1000.0  # [K] from 1972 flow diagram
     temperature_Ne: float = 4722.222  # [K], avg 2000/15000 R, p.72
     temperature_Si02: float = 1698.333 # [K].
     temperature_Be: float = 555.56 # [K]
@@ -104,6 +109,19 @@ class GCRConfig:
     # --- Moderator -----------------------------------------------------------
     moderator_top_thickness: float = 27.0  # [cm] visual estimation, F-910093-37
     moderator_cone_inner_radius: float = 120.0  # [cm] R_in of the graphite cone
+    
+    # --- Pressure Vessel ----------------------
+    # most taken from F-910093, p.33, 41-43
+    include_pressure_vessel: bool = True # added because pressure vessel I added as the last and feared it's going to break everything
+    pv_standoff:            float = 0.0   # [cm] gap graphite - inner pv shell
+    pv_shell_thickness:     float = 2.06 * in_to_cm  # [cm] per shell (2 total)
+    pv_gap_thickness:       float = 6.5 * in_to_cm  # [cm] gap inner-outer shell (h2 annulus region)
+    density_fibreglass:     float = 1.9514          # [g/cm3] from 0.0704 lb/in3
+    resin_mass_fraction:    float = 0.24            # [-]
+    temperature_pv:         float = 250             # [K] is about 450 R mid- wall
+    pv_h2_pressure_atm:     float = 250.0           # [atm]
+    pv_h2_temperature:      float = 250.0           # [K]
+    density_h2_pv:          float = 0.003847        # [g/cm3] rough average of densities using the states specified on the flow diagram in F-910093-37
 
     # --- Tie rods (F-910093-37, tab. VII) -------------------------------------
     diameter_tierod_inner: float = 1.0 * in_to_cm    # [cm] coolant channel

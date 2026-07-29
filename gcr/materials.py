@@ -12,7 +12,7 @@ from scipy.interpolate import interp1d
 
 import gcnr
 
-from .config import GCRConfig, REQUIRED_NUCLIDES, OPTIONAL_SAB_NUCLIDES
+from .config import GCRConfig, REQUIRED_NUCLIDES, OPTIONAL_SAB_NUCLIDES, PRESSURE_VESSEL_NUCLIDES
 
 # Physical constants used in the gas-density recipes
 R_GAS = 8.31446261815324      # [J/(mol K)]
@@ -24,6 +24,10 @@ M_F = 18.998e-3
 M_Ne = 20.180e-3
 M_Si = 28.086e-3
 
+# oxide split for s-glass:
+# SiO2 65, Al2O3 25, MgO 10 wt%
+S901_GLASS = {'Si': 0.30381, 'O': 0.50359, 'Al': 0.13230, 'Mg': 0.06030}
+EPOXY = {'C': 0.731, 'H': 0.072, 'O': 0.164, 'N': 0.034}
 
 def _fuel_gas_recipe(name: str, T_fuel: float, P_U_atm: float,
                      P_Ne_atm: float, P_Si_atm: float,
@@ -77,6 +81,35 @@ def _seeded_hydrogen(name: str, T: float, rho_h_gcc: float,
     else:
         material.add_element('H', 1.0)
         material.set_density('g/cm3', rho_h_gcc)
+    return material
+
+def _fibreglass(cfg: GCRConfig) -> openmc.Material:
+    """
+    Filament-wound fibre-glass (S901) / epoxy composite from F-910093-37
+
+    Density/resin fractions from config should be the values taken from this report.
+    """
+    w_resin = cfg.resin_mass_fraction
+    comp = {}
+
+    for element, w_frac in S901_GLASS.items():
+        comp[element] = comp.get(element, 0.0) + (1.0 - w_resin) * w_frac
+    for element, w_frac in EPOXY.items():
+        comp[element] = comp.get(element, 0.0) + w_resin * w_frac
+    
+    material = openmc.Material(name='fibreglass', temperature=cfg.temperature_pv)
+    for element, w_frac in comp.items():
+        material.add_element(element, w_frac, 'wo')
+    material.set_density('g/cm3', cfg.density_fibreglass)
+    return material
+
+def _pv_hydrogen(cfg: GCRConfig) -> openmc.Material:
+    """
+    H2 in the inter-shell annulus F-910093-37
+    """
+    material = openmc.Material(name='hyrdogen_pv', temperature=cfg.pv_h2_temperature)
+    material.add_element('H', 1.0)
+    material.set_density('g/cm3', cfg.density_h2_pv)
     return material
 
 def _photon_elements(nuclides) -> list:
@@ -139,7 +172,7 @@ def build_materials(cfg: GCRConfig) -> dict:
     hydrogen_liner.add_element('H', 1.0)
     hydrogen_liner.set_density('g/cm3', rho_h2_avg)
 
-    hydrogen_tori = openmc.Material(name='hydrogen_tori', temperature=cfg.temperature_h2_general)
+    hydrogen_tori = openmc.Material(name='hydrogen_tori', temperature=cfg.temperature_h2_tori)
     hydrogen_tori.add_element('H', 1.0)
     hydrogen_tori.set_density('g/cm3', rho_h2_avg)
 
@@ -160,7 +193,7 @@ def build_materials(cfg: GCRConfig) -> dict:
     beryllium.add_element('Be', 1.0)
     beryllium.set_density('g/cm3', cfg.density_beryllium)
 
-    return {
+    out = {
         'fuel_inner': fuel_inner,
         'fuel_outer': fuel_outer,
         'graphite': graphite,
@@ -173,6 +206,11 @@ def build_materials(cfg: GCRConfig) -> dict:
         'Be': beryllium,
     }
 
+    if cfg.include_pressure_vessel:
+        out['fibreglass'] = _fibreglass(cfg)
+        out['hydrogen_pv'] = _pv_hydrogen(cfg)
+
+    return out
 
 def fuel_temperature_from_h2(cfg: GCRConfig, T_H: float) -> float:
     """Radiation-equilibrium fuel temperature given a propellant temperature.
@@ -420,6 +458,17 @@ def build_cross_section_library(cfg: GCRConfig, output_dir: str) -> str:
                         'Check the file or turn the photon_transport of by setting = False'
                         )
             library.register_file(photon_h5_file)
+            
+    if cfg.include_pressure_vessel:
+        for nuclide in PRESSURE_VESSEL_NUCLIDES:
+            path = os.path.join(cfg.cross_sections_dir, f'{nuclide}.h5')
+            if os.path.isfile(path):
+                library.register_file(path)
+            else:
+                raise FileNotFoundError(
+                        f'The cross-section file for pressure shell nuclide not found: {nuclide}.h5'
+                        f'\ncheck the cross section dir: {cfg.cross_sections_dir}'
+                        )
     xs_xml_path = os.path.abspath(os.path.join(output_dir, 'cross_sections.xml'))
     library.export_to_xml(xs_xml_path)
     return xs_xml_path
