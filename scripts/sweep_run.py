@@ -50,8 +50,7 @@ def add_reference_tallies(core: GCR, config: GCRConfig, N_GROUPS: int) -> None:
 def main():
 
     libraries = ('jeff40', 'endfb_viii.1', 'jendl5', 'tendl2025')
-    print(libraries[0:3])
-    for library in libraries[0:3:-1]:
+    for library in libraries:
         print(f'~~~~~~~~~~~~~~~~~~~~~ {library} ~~~~~~~~~~~~~~~~~~~~~~~~~')
 
         lib_path = f'libraries_xs/{library}_hdf5/'

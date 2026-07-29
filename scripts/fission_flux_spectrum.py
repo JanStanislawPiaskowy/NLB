@@ -36,12 +36,14 @@ Drop next to GCR.py and sensitivity_analysis.py and run
 """
 
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import openmc
 
-from GCR import GCR, GCRConfig
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from gcr import GCR, GCRConfig
 
 # ---------------------------------------------------------------------------
 # Configuration -- mirrors sensitivity_analysis.py for consistency.
@@ -54,7 +56,7 @@ BASE_CONFIG_KWARGS = dict(
     h2_density_profile_path='settings/h2_density_profile.npz',
 )
 
-OUTPUT_DIR  = 'fission_spectrum_run'
+OUTPUT_DIR  = 'OLD_fission_spectrum_run'
 N_BATCHES   = 150
 N_INACTIVE  = 25
 N_PARTICLES = 150_000
@@ -81,10 +83,10 @@ TEMPERATURES = [
 # Energy grid for the spectrum: log-spaced, 1e-5 eV to 20 MeV, 500 bins.
 N_E_BINS = 500
 E_MIN    = 1.0e-5     # eV
-E_MAX    = 2.0e7      # eV  (20 MeV)
+E_MAX    = 2.0e6      # eV  
 
 # Boundaries for the thermal / intermediate / fast bookkeeping
-E_THERMAL_HI = 0.625    # eV  (cadmium cutoff)
+E_THERMAL_HI = 1.25    # eV  (cadmium cutoff)
 E_FAST_LO    = 1.0e5    # eV
 
 
