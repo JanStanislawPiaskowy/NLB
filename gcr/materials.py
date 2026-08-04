@@ -107,7 +107,7 @@ def _pv_hydrogen(cfg: GCRConfig) -> openmc.Material:
     """
     H2 in the inter-shell annulus F-910093-37
     """
-    material = openmc.Material(name='hyrdogen_pv', temperature=cfg.pv_h2_temperature)
+    material = openmc.Material(name='hydrogen_pv', temperature=cfg.pv_h2_temperature)
     material.add_element('H', 1.0)
     material.set_density('g/cm3', cfg.density_h2_pv)
     return material
@@ -450,15 +450,21 @@ def build_cross_section_library(cfg: GCRConfig, output_dir: str) -> str:
                   f'{cfg.cross_sections_dir}; BeO runs free-gas.')
 
     if cfg.photon_transport:
-        for element in _photon_elements(REQUIRED_NUCLIDES):
-            photon_h5_file = os.path.join(cfg.photon_cross_sections_dir, f'{element}_photon.h5')
+        photon_nuclides = list(REQUIRED_NUCLIDES)
+        if cfg.include_pressure_vessel:
+            photon_nuclides += PRESSURE_VESSEL_NUCLIDES
+
+        photon_dir = cfg.photon_cross_sections_dir or cfg.cross_sections_dir
+
+        for element in _photon_elements(photon_nuclides):
+            photon_h5_file = os.path.join(photon_dir, f'{element}_photon.h5')
             if not os.path.isfile(photon_h5_file):
                 raise FileNotFoundError(
-                        f'Photon cross-section file not found: {photon_h5_file}\n'
-                        'Check the file or turn the photon_transport of by setting = False'
-                        )
-            library.register_file(photon_h5_file)
-            
+                    f'Photon cross-section file not found: {photon_h5_file}\n'
+                    'Check the file or turn photon_transport off by setting = False'
+                )
+            library.register_file(photon_h5_file)       
+
     if cfg.include_pressure_vessel:
         for nuclide in PRESSURE_VESSEL_NUCLIDES:
             path = os.path.join(cfg.cross_sections_dir, f'{nuclide}.h5')

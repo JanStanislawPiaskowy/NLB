@@ -176,6 +176,9 @@ class GCR:
         settings.inactive = cfg.inactive
         settings.particles = cfg.particles
 
+        half = cfg.inactive + (cfg.batches - cfg.inactive) // 2
+        settings.statepoint = {'batches': [half, cfg.batches]}
+
         # IFP for kinetic parameters (beta_eff, Lambda_eff)
         settings.ifp_n_generation = min(cfg.ifp_n_generation, cfg.inactive - 1) # number of generation after which neutron is added to the tally
         # cannot be bigger than the inactive batches
@@ -208,14 +211,21 @@ class GCR:
 
         sources = []
         for cavity in self.cavities:
-            x0, y0, z0 = cavity.translation
-            spatial = openmc.stats.Box(
-                lower_left=(x0 - cfg.R1, y0 - cfg.R1, z0),
-                upper_right=(x0 + cfg.R1, y0 + cfg.R1, z0 + cfg.L),
-            )
-            energy = openmc.stats.Watt(a=0.988e6, b=2.249e-6)  # openmc default
+            lo, hi = self._cavity_source_box(cavity)
             sources.append(openmc.IndependentSource(
-                space=spatial, energy=energy, constraints={'fissionable': True}))
+                space = openmc.stats.Box(lower_left=lo.tolist(),
+                                         upper_right=hi.tolist()),
+                energy=openmc.stats.Watt(a=0.988e6, b=2.249e-6),
+                constraints={'fissionable': True},
+                ))
+           # x0, y0, z0 = cavity.translation
+           # spatial = openmc.stats.Box(
+           #     lower_left=(x0 - cfg.R1, y0 - cfg.R1, z0),
+           #     upper_right=(x0 + cfg.R1, y0 + cfg.R1, z0 + cfg.L),
+           # )
+           # energy = openmc.stats.Watt(a=0.988e6, b=2.249e-6)  # openmc default
+           # sources.append(openmc.IndependentSource(
+           #     space=spatial, energy=energy, constraints={'fissionable': True}))
         settings.source = sources
         return settings
 
@@ -451,3 +461,24 @@ class GCR:
                 hi = np.maximum(hi, p + pad)
 
         return lo - m, hi + m 
+
+    def _cavity_source_box(self, cavity, pad_radius=None, z_lo=0.0, z_hi=None):
+        """
+        axis-aligned box of one cavity;s fuel cylinder
+
+        Same expression as fissile_envelope()
+        """
+        import numpy as np
+        cfg = self.config
+        R = cfg.R2 if pad_radius is None else pad_radius
+        z_hi = cfg.L if z_hi is None else z_hi
+
+        t = np.asarray(cavity.translation, dtype=float)
+        axis = np.asarray(cavity.rotation) @ np.array([0.0, 0.0, 1.0])
+        pad = R * np.sqrt(np.clip(1.0 - axis ** 2, 0.0, 1.0))
+
+        p0 = t + axis * z_lo
+        p1 = t + axis * z_hi
+
+        return np.minimum(p0, p1) - pad, np.maximum(p0, p1) + pad
+

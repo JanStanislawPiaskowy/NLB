@@ -27,7 +27,7 @@ from gcr.analysis.four_factors import add_four_factor_tallies
 
 from scripts.sensitivity_analysis import print_material_temperatures
 
-OUTPUT_DIR = 'reference_runs/various/'
+OUTPUT_DIR = 'reference_runs/critical_state/'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 def make_config() -> GCRConfig:
@@ -45,8 +45,8 @@ def make_config() -> GCRConfig:
         batches=250,
         inactive=50,
         particles=500_000,
-        temperature_BeO=1200,
-        photon_transport=False,
+        #temperature_BeO=1200,
+        photon_transport=True,
     )
 
 
@@ -54,38 +54,49 @@ def add_reference_tallies(core: GCR, config: GCRConfig) -> None:
     """The reference tally set."""
     core.add_power_tally()
     core.add_kinetics_tally(num_groups=6)
-    core.add_midplane_flux_tally(slice_thickness=20.0)
+
+    E_BOUNDS = [0.0, 0.625, 1.125, 1.86, 1.0e5, 20e6]
+
+    core.add_midplane_flux_tally(slice_thickness=20.0, energy_bounds=E_BOUNDS)
     add_four_factor_tallies(core)
     core.add_axial_flux_tally(
         slice_thickness=10.0, nz=700,
         z_min=-config.moderator_top_thickness - 20.0,
-        z_max=config.L * 1.2,
+        z_max=config.L * 1.4,
+        energy_bounds=E_BOUNDS
     )
     core.add_fission_spectrum_tally()
     core.add_unweighted_lifetime_tally()
 
+def plot_only(config: GCRConfig, sp_path: str, with_cavities: bool = False) -> None:
+    """Re-plot from an existing statepoint.
 
-def plot_only(config: GCRConfig, output_dir: str = 'settings') -> None:
-    """Re-plot from an existing statepoint WITHOUT building any geometry.
-
-    The plot functions only need each tally's mesh and cutoffs, which the
-    factories recreate instantly (they build objects; they do not run
-    anything).  Cavity-centre markers are skipped since no cavities exist.
+    Tally geometry MUST be recreated with the same arguments used in
+    add_reference_tallies -- a mismatched z_max silently rescales the axial
+    figures instead of raising.
     """
-    sp_path = os.path.join(output_dir, f'statepoint.{config.batches}.h5')
-
     power = tallies.power_tally(config)
     midplane = tallies.midplane_flux_tally(config, slice_thickness=20.0)
     axial = tallies.axial_flux_tally(
         config, slice_thickness=10.0, nz=700,
         z_min=-config.moderator_top_thickness - 20.0,
-        z_max=config.L * 1.2,
+        z_max=config.L * 1.4,          # was 1.2 -- must match the run
     )
 
-    plotting.plot_midplane_flux(config, midplane.mesh, midplane.meta, sp_path)
-    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path)
+    cavities = ()
+    if with_cavities:                  # builds geometry, does not run OpenMC
+        core = GCR(config)
+        core.build()
+        cavities = core.cavities
+
+    plotting.plot_midplane_flux(config, midplane.mesh, midplane.meta, sp_path,
+                                cavities=cavities)
+    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path, group_edges=[1.86, 1.0e5])
     plotting.plot_power_distribution(config, power.mesh, sp_path, z_fraction=0.45)
 
+    plotting.plot_midplane_flux(config, midplane.mesh, midplane.meta, sp_path, group_edges=[1.86, 1.0e5], cumulative_cut_eV=None)
+    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path)
+    plotting.plot_power_distribution(config, power.mesh, sp_path, z_fraction=0.45)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -107,7 +118,8 @@ def main() -> None:
         print(f'fuel_density_alpha overridden from CLI: {args.alpha}')
 
     if args.plot_only:
-        plot_only(config)
+        sp = 'reference_runs/critical_nophoton/statepoint.250.h5'
+        plot_only(config, sp, with_cavities=True)
         return
 
     core = GCR(config)          # include_tie_rods=False: rods stay OFF

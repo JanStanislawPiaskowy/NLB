@@ -9,7 +9,7 @@ import openmc
 
 def convergence_report(statepoint_path, tol=0.005, tail_fraction=0.25):
 
-    with openmc.StatePoint(statepoint_path) as sp:
+    with openmc.StatePoint(statepoint_path, autolink=False) as sp:
         H = np.asarray(sp.entropy, dtype=float)
         k_gen = np.asarray(sp.k_generation, dtype=float)
         n_in = sp.n_inactive
@@ -20,13 +20,14 @@ def convergence_report(statepoint_path, tol=0.005, tail_fraction=0.25):
                 'No entropy in this statepoint.'
                 )
 
-    tail = max(10, int(tail_faction * H.size)) # get only the last values
+    tail = max(10, int(tail_fraction * H.size)) # get only the last values
     H_ref = H[-tail:].mean()
     inside = np.abs(H - H_ref) < tol * abs(H_ref)
 
     n_from_i = np.cumsum(inside[::-1])[::-1]
-    n_conv = int(np.argmax(n_from_i == np.arrange(H.size, 0, -1)))
-
+    n_conv = int(np.argmax(n_from_i == np.arange(H.size, 0, -1)))
+    print(f'{inside.sum()}/{inside.size} generations inside the band')
+    print(f'H[0] = {H[0]:.4f}   band = {H_ref:.4f} +/- {tol*abs(H_ref):.4f}')
 
     # accounting for non-independence
     a = k_gen[n_in:] - k_gen[n_in:].mean()
@@ -44,9 +45,9 @@ def convergence_report(statepoint_path, tol=0.005, tail_fraction=0.25):
     return return_dict
 
 if __name__ == '__main__':
-    statepoint_path = ''
+    statepoint_path = 'reference_runs/critical_nophoton/statepoint.250.h5'
 
     values = convergence_report(statepoint_path)
 
-    for val in values:
+    for val in values.items():
         print(val)

@@ -37,6 +37,8 @@ scripts/quickie.py
 scripts/run_reference.py
 reference_runs/
 heating_runs/
+tmp/
+peaking_run/
 
 # Vim
 *~

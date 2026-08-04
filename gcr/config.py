@@ -163,7 +163,7 @@ class GCRConfig:
     epsilon_fuel: float = 0.85            # [-] emissivity at the fuel–wall interface
 
     # ~~~~~~~ Density factors ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    fuel_density_alpha: float = 2.0255  # [-] multiplier applied to all fuel densities
+    fuel_density_alpha: float = 1.8260  # [-] multiplier applied to all fuel densities
     seed_mass_fraction: float = 0.039  # [-] tungsten seed mass flow fraction, F-910093-36 p.8:
     # "[...] This seed density is equal to 3.9 percent of the inlet propellant density"
     # it is further assumed this fraction does not change with the flow (no slip velocity, ...)

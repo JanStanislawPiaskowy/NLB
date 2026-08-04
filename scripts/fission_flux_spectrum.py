@@ -86,7 +86,7 @@ E_MIN    = 1.0e-5     # eV
 E_MAX    = 2.0e6      # eV  
 
 # Boundaries for the thermal / intermediate / fast bookkeeping
-E_THERMAL_HI = 1.25    # eV  (cadmium cutoff)
+E_THERMAL_HI = 0.625    # eV  (cadmium cutoff)
 E_FAST_LO    = 1.0e5    # eV
 
 
