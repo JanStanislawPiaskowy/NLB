@@ -1039,6 +1039,24 @@ def mesh_data(tally: openmc.Tally, mesh: openmc.RegularMesh,
     data = data.reshape(nz, ny, nx, *data.shape[1:])
     return np.transpose(data, (2, 1, 0) + tuple(range(3, data.ndim)))
 
+def mesh_energy_data(tally: openmc.Tally, mesh: openmc.RegularMesh,
+                     value: str = 'mean') -> np.ndarray:
+    """(nx, ny, nz, n_E), with every other filter, nuclide and score axis
+    taken at index 0.
+
+    Doing this by name rather than by reshaping means an extra filter --
+    a ParticleFilter is added to every tally when photon transport is on --
+    cannot silently be folded into the mesh or energy axis.
+    """
+    m_axis, _ = _filter_axis(tally, openmc.MeshFilter)
+    e_axis, _ = _filter_axis(tally, openmc.EnergyFilter)
+    if e_axis is None:
+        raise ValueError(f'tally {tally.name!r} has no EnergyFilter')
+
+    data = mesh_data(tally, mesh, value=value)   # (nx, ny, nz, *rest)
+    pos = 3 + e_axis - (1 if e_axis > m_axis else 0)
+    data = np.moveaxis(data, pos, 3)
+    return data[(slice(None),) * 4 + (0,) * (data.ndim - 4)]
 
 def energy_edges(tally: openmc.Tally, meta: dict = None) -> np.ndarray:
     """Bin edges [eV] of the tally's EnergyFilter, or reconstructed from meta.
@@ -1054,6 +1072,10 @@ def energy_edges(tally: openmc.Tally, meta: dict = None) -> np.ndarray:
     if meta is None:
         raise ValueError(f'tally {tally.name!r} has no EnergyFilter and no '
                          f'meta was given')
+
+    if 'energy_bounds' in meta:
+        return np.asarray(meta['energy_bounds'], dtype=float)
+
     return np.array([0.0, meta['thermal_cutoff'], meta['epithermal_cutoff'],
                      2.0e7], dtype=float)
 
@@ -1420,7 +1442,9 @@ def plot_midplane_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
                        statepoint_path: str, cavities=(), save: bool = True,
                        power_W: float = 4.6e9, figures_dir: str = 'figures',
                        half: bool = True, cumulative_cut_eV: float = 8.32,
-                       lineout_norm: str = 'global', group_edges=None):
+                       lineout_norm: str = 'global', group_edges=None,
+                       lineout_norm_scope: str = 'panel', lineout_panels: str ='both', titles: bool = True,
+                       thermal_cut_eV=None, fast_cut_eV: float = 1.0e5):      
     """Group midplane flux maps + line-outs, normalised to reactor power.
 
     power_W:            None leaves the tally output in n/cm2/src.
@@ -1441,6 +1465,12 @@ def plot_midplane_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
     lineout_norm:       None keeps the absolute logarithmic line-outs.
                         'global' or 'group' switches them to a LINEAR axis
                         normalised to a maximum -- see lineout_normalisation.
+    lineout_panels:     'both' draws the y = 0 and x = 0 scans side by side.
+                        'y0' or 'x0' draws that one alone, and the file gains
+                        a matching suffix so it does not overwrite the pair.
+    titles:             False suppresses the per-panel titles and the
+                        suptitle, for figures going into a document that
+                        carries its own caption.
     """
     sp = openmc.StatePoint(statepoint_path)
     tally = sp.get_tally(name='midplane_flux_groups')
@@ -1452,10 +1482,15 @@ def plot_midplane_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
     n_g = len(labels)
 
     # (nx, ny, nz, n_E, n_nuc, n_score) -> (nx, ny, n_E), correctly oriented
-    flux = mesh_data(tally, mesh)[..., 0, 0]
-    flux = flux.reshape(nx, ny, -1, n_g)[:, :, 0, :]
+    flux = mesh_energy_data(tally, mesh)[:, :, 0, :]      # (nx, ny, n_E)
 
-    if group_eges is not None:
+    if thermal_cut_eV is not None:
+        if group_edges is not None:
+            raise ValueError('pass thermal_cut_eV or group_edges, not both')
+        group_edges = [thermal_cut_eV, fast_cut_eV]
+        cumulative_cut_eV = None      # midplane only: the fine edges are gone
+
+    if group_edges is not None:
         flux, edges = collapse_to(flux, edges, group_edges)
         labels = group_labels(edges)
         n_g = len(labels)
@@ -1468,6 +1503,10 @@ def plot_midplane_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
     else:
         flux_unit = 'n/cm2/src'
         norm_label = 'per source neutron'
+
+    if lineout_panels not in ('both', 'y0', 'x0'):
+        raise ValueError(f"lineout_panels must be 'both', 'y0', 'x0'm "
+                         f"got {lineout_panels!r}")
 
     extent = [ll[0], ur[0], ll[1], ur[1]]
     z_slice = 0.5 * (ll[2] + ur[2])
@@ -1551,36 +1590,54 @@ def plot_midplane_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
         else:
             below = flux[:, :, :j].sum(axis=2)
             cut_s = fmt_E(cumulative_cut_eV)
-            fig3, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
+
+            # _lineouts returns ((x, curve_along_y0), (y, curve_along_x0)),
+            # so index 0 is the y = 0 scan and index 1 the x = 0 scan.
+            want = {'both': (0, 1), 'y0': (0,), 'x0': (1,)}[lineout_panels]
+            single = len(want) == 1
+
+            fig3, axes = plt.subplots(
+                1, len(want), figsize=(7, 5) if single else (13, 5),
+                sharey=True, squeeze=False)
+            axes = axes[0]
+
             cuts = [_lineouts(below)] + [_lineouts(flux[:, :, g])
                                          for g in range(j)]
+            # Normalise over the panels actually drawn.  With one panel a
+            # 'global' denominator taken from both would be set by a curve
+            # that is not in the figure, leaving everything short of 1.0.
             denom, common = lineout_normalisation(
-                [[a[1], b[1]] for a, b in cuts], lineout_norm)
-            (xa, ca), (yb, cb) = cuts[0]
-            axes[0].plot(xa, ca / denom[0], color='k', lw=2,
-                         label=f'E < {cut_s} (total)')
-            axes[1].plot(yb, cb / denom[0], color='k', lw=2,
-                         label=f'E < {cut_s} (total)')
-            for g in range(j):                     # contributing groups
-                (xa, fa), (yb, fb) = cuts[g + 1]
-                d = denom[g + 1]
-                c = _GROUP_COLOURS[g % len(_GROUP_COLOURS)]
-                axes[0].plot(xa, fa / d, color=c, ls='--', lw=1, label=labels[g])
-                axes[1].plot(yb, fb / d, color=c, ls='--', lw=1, label=labels[g])
-            axes[0].set_xlabel('x (cm)')
-            axes[0].set_title('Line-out along y = 0')
-            axes[1].set_xlabel('y (cm)')
-            axes[1].set_title('Line-out along x = 0')
+                [[c[p][1] for p in want] for c in cuts], lineout_norm)
+
+            _XLAB = ('x (cm)', 'y (cm)')
+            _TITLE = ('Line-out along y = 0', 'Line-out along x = 0')
+
+            for ax, p in zip(axes, want):
+                ab, cv = cuts[0][p]
+                ax.plot(ab, cv / denom[0], color='k', lw=2,
+                        label=f'E < {cut_s} (total)')
+                for g in range(j):                 # contributing groups
+                    ab, fg = cuts[g + 1][p]
+                    c = _GROUP_COLOURS[g % len(_GROUP_COLOURS)]
+                    ax.plot(ab, fg / denom[g + 1], color=c, ls='--', lw=1,
+                            label=labels[g])
+                ax.set_xlabel(_XLAB[p])
+                if titles:
+                    ax.set_title(_TITLE[p])
+
             _style_lineout(axes, lineout_norm, flux_unit, common)
-            plt.suptitle(f'Midplane flux below {cut_s}  ({norm_label})', y=1.02)
+            if titles:
+                plt.suptitle(f'Midplane flux below {cut_s}  ({norm_label})',
+                             y=1.02)
             plt.tight_layout()
             if save:
                 tag = f'{cumulative_cut_eV:g}eV'.replace('.', 'p')
-                out = os.path.join(figures_dir,
-                                   f'midplane_flux_lineout_below_{tag}.pdf')
+                suffix = '' if lineout_panels == 'both' else f'_{lineout_panels}'
+                out = os.path.join(
+                    figures_dir,
+                    f'midplane_flux_lineout_below_{tag}{suffix}.pdf')
                 fig3.savefig(out, dpi=150, bbox_inches='tight')
                 print(f'Saved -> {out}')
-
     plt.show()
     return (fig1, fig2, fig3) if fig3 is not None else (fig1, fig2)
 
@@ -1592,8 +1649,8 @@ def plot_axial_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
                     statepoint_path: str, save: bool = True,
                     power_W: float = 4.6e9, figures_dir: str = 'figures',
                     half: bool = True, lineout_norm: str = None,
-                    group_edges=None,                        # <-- NEW
-                    lineout_norm_scope: str = 'panel'):      # <-- NEW
+                    group_edges=None, thermal_cut_eV=None, fast_cut_eV: float = 1e5,                       
+                    lineout_norm_scope: str = 'panel'):    
     """Group axial flux on the x = 0 slab + line-outs, power-normalised.
 
     The mesh is [1, ny, nz], i.e. thin in X, so the slab lies in the x = 0
@@ -1623,10 +1680,13 @@ def plot_axial_flux(cfg: GCRConfig, mesh: openmc.RegularMesh, meta: dict,
     labels = group_labels(edges)
     n_g = len(labels)
 
-    flux = mesh_data(tally, mesh)[..., 0, 0]       # (nx, ny, nz, n_E)
-    flux = flux.reshape(nx, ny, nz, n_g)[0]        # -> (ny, nz, n_E)
+    flux = mesh_energy_data(tally, mesh)[0]              # (ny, nz, n_E)
 
-    # Collapse AFTER the reshape -- the reshape needs the tally's own n_g.
+    if thermal_cut_eV is not None:
+        if group_edges is not None:
+            raise ValueError('pass thermal_cut_eV or group_edges, not both')
+        group_edges = [thermal_cut_eV, fast_cut_eV]
+
     if group_edges is not None:                                  # <-- NEW
         flux, edges = collapse_to(flux, edges, group_edges)      # <-- NEW
         labels = group_labels(edges)                             # <-- NEW

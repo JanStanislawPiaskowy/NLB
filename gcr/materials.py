@@ -26,8 +26,9 @@ M_Si = 28.086e-3
 
 # oxide split for s-glass:
 # SiO2 65, Al2O3 25, MgO 10 wt%
-S901_GLASS = {'Si': 0.30381, 'O': 0.50359, 'Al': 0.13230, 'Mg': 0.06030}
-EPOXY = {'C': 0.731, 'H': 0.072, 'O': 0.164, 'N': 0.034}
+S901_GLASS = {'Si': 0.30383, 'O': 0.50355, 'Al': 0.13232, 'Mg': 0.06030}
+# generic EPON 828 (C21H24O4)n
+EPOXY = {'C': 0.7205, 'H': 0.0754, 'O': 0.1725, 'N': 0.0316}
 
 def _fuel_gas_recipe(name: str, T_fuel: float, P_U_atm: float,
                      P_Ne_atm: float, P_Si_atm: float,

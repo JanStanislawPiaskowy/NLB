@@ -50,10 +50,16 @@ The baseline entry (variable='baseline', delta=0) must always be present.
 
 Outputs
 -------
-Three PDF files are written to --out-dir (default: sensitivity_results/):
+PDF files are written to --out-dir (default: sensitivity_results/):
     reactivity[_<modes>].pdf   – ρ = (k−1)/k  (pcm) vs perturbation
     keff[_<modes>].pdf         – k_eff vs perturbation
-    kinetics[_<modes>].pdf     – β_eff and Λ_eff (only if kinetics data present)
+    beta_eff[_<modes>].pdf     – β_eff vs perturbation
+    lambda_eff[_<modes>].pdf   – Λ_eff vs perturbation
+
+The last two appear only when the JSON carries kinetics fields.  They are
+separate files rather than two rows of one figure so that each can be
+dropped into a document at its own scale.  No figure carries a title: the
+caption is the document's job.
 """
 
 import argparse
@@ -172,7 +178,10 @@ def make_figures(results, panels,
                  out_dir='sensitivity_results',
                  suptitle_base='GCR reactivity feedback',
                  show=True):
-    """Produce all three sensitivity figures from *results* for the given *panels*.
+    """Produce the sensitivity figures from *results* for the given *panels*.
+
+    Writes reactivity and keff figures always, plus separate beta_eff and
+    lambda_eff figures when the results carry kinetics fields.
 
     Parameters
     ----------
@@ -300,14 +309,14 @@ def make_figures(results, panels,
             sym, units = _ALPHA_LABEL[panel]
             disp_s  = s / scale  if scale != 1.0 else s
             disp_se = se / scale if scale != 1.0 else se
-            ax.plot(xf, s * xf + i, 'k--', lw=1,
+            ax.plot(xf, disp_s * xf + i, 'k--', lw=1,
                     label=rf'{sym} $= {disp_s:+.2f} \pm {disp_se:.2f}$ {units}')
 
         ax.axhline(rho_baseline, color='grey', lw=0.8, linestyle=':',
                    label=rf'$\rho_{{\mathrm{{ref}}}} = {rho_baseline:.0f}$ pcm')
         ax.axvline(0, color='k', lw=0.5)
         ax.set_xlabel(xlabel)
-        ax.set_title(title)
+        #ax.set_title(title)
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8)
 
@@ -318,7 +327,7 @@ def make_figures(results, panels,
         axes1[0, 0].set_ylabel(ylabel_rho)
         axes1[1, 0].set_ylabel(ylabel_rho)
 
-    fig1.suptitle(suptitle)
+    #fig1.suptitle(suptitle)
     fig1.tight_layout()
     pdf1 = os.path.join(out_dir, f'reactivity{plot_suffix}.pdf')
     fig1.savefig(pdf1, dpi=150)
@@ -345,7 +354,7 @@ def make_figures(results, panels,
         ax.axhline(1.0, color='k', lw=0.8, linestyle='--',
                    label=r'$k_\mathrm{eff} = 1$')
         ax.set_xlabel(xlabel)
-        ax.set_title(title)
+        #ax.set_title(title)
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8)
 
@@ -356,7 +365,7 @@ def make_figures(results, panels,
         axes2[0, 0].set_ylabel(ylabel_k)
         axes2[1, 0].set_ylabel(ylabel_k)
 
-    fig2.suptitle(suptitle.replace('reactivity feedback', r'$k_\mathrm{eff}$'))
+    #fig2.suptitle(suptitle.replace('reactivity feedback', r'$k_\mathrm{eff}$'))
     fig2.tight_layout()
     pdf2 = os.path.join(out_dir, f'keff{plot_suffix}.pdf')
     fig2.savefig(pdf2, dpi=150)
@@ -375,37 +384,26 @@ def make_figures(results, panels,
     if has_kinetics:
         nk = len(panels_with_kin)
         if nk == 0:
-            print('Kinetics data present in baseline only — skipping kinetics figure.')
+            print('Kinetics data present in baseline only — skipping kinetics '
+                  'figures.')
         else:
-            # Two rows per panel: top = β_eff, bottom = Λ_eff
-            fig3, axes3, _ = _make_fig(nk, rows_per_panel=2)
-
-            if nk <= 3:
-                beta_axes = [axes3[0, i] for i in range(nk)]
-                gen_axes  = [axes3[1, i] for i in range(nk)]
-            elif nk == 4:
-                beta_axes = [axes3[0, 0], axes3[0, 1],
-                             axes3[2, 0], axes3[2, 1]]
-                gen_axes  = [axes3[1, 0], axes3[1, 1],
-                             axes3[3, 0], axes3[3, 1]]
-            else:
-                # 5 or 6
-                beta_axes = [axes3[0, c] for c in range(3)] + \
-                            [axes3[2, c] for c in range(nk - 3)]
-                gen_axes  = [axes3[1, c] for c in range(3)] + \
-                            [axes3[3, c] for c in range(nk - 3)]
+            # One figure per quantity.  With rows_per_panel=1 the flat axis
+            # list maps straight onto panels_with_kin, so the special cases
+            # the two-row layout needed for nk = 4, 5, 6 are gone.
+            fig_b, axes_b, flat_b = _make_fig(nk, rows_per_panel=1)
+            fig_g, axes_g, flat_g = _make_fig(nk, rows_per_panel=1)
 
             for i, panel in enumerate(panels_with_kin):
-                scale, xlabel, mk, col, title = _PANEL_META[panel]
+                scale, xlabel, mk, col, _ = _PANEL_META[panel]
                 sub = subs[panel]
-                x   = np.array([scale * r['delta']               for r in sub])
+                x   = np.array([scale * r['delta']                for r in sub])
                 b   = np.array([r.get('beta_eff', np.nan)         for r in sub])
                 sb  = np.array([r.get('sigma_beta_eff', 0.0)      for r in sub])
                 g   = np.array([r.get('gen_time_s', np.nan)       for r in sub])
                 sg  = np.array([r.get('sigma_gen_time_s', 0.0)    for r in sub])
 
-                # β_eff panel
-                ax_b = beta_axes[i]
+                # -- beta_eff -------------------------------------------------
+                ax_b = flat_b[i]
                 ax_b.errorbar(x, b * 1e3, yerr=sb * 1e3,
                               marker=mk, color=col, capsize=3,
                               linestyle='none', label='data')
@@ -414,14 +412,13 @@ def make_figures(results, panels,
                                  linestyle=':',
                                  label=rf'baseline $\beta = {beta_ref*1e3:.2f}'
                                        rf'\times10^{{-3}}$')
+                ax_b.axvline(0, color='k', lw=0.5)
                 ax_b.set_xlabel(xlabel)
-                ax_b.set_ylabel(r'$\beta_\mathrm{eff}$ ($\times10^{-3}$)')
-                ax_b.set_title(f'β_eff — {title}')
                 ax_b.grid(alpha=0.3)
                 ax_b.legend(fontsize=8)
 
-                # Λ_eff panel
-                ax_g = gen_axes[i]
+                # -- Lambda_eff -----------------------------------------------
+                ax_g = flat_g[i]
                 ax_g.errorbar(x, g * 1e6, yerr=sg * 1e6,
                               marker=mk, color=col, capsize=3,
                               linestyle='none', label='data')
@@ -430,20 +427,33 @@ def make_figures(results, panels,
                                  linestyle=':',
                                  label=rf'baseline $\Lambda = '
                                        rf'{gen_ref*1e6:.2f}$ µs')
+                ax_g.axvline(0, color='k', lw=0.5)
                 ax_g.set_xlabel(xlabel)
-                ax_g.set_ylabel(r'$\Lambda_\mathrm{eff}$ (µs)')
-                ax_g.set_title(rf'$\Lambda_\mathrm{{eff}}$ — {title}')
                 ax_g.grid(alpha=0.3)
                 ax_g.legend(fontsize=8)
 
-            fig3.suptitle(suptitle.replace('reactivity feedback',
-                                           'kinetic parameters'))
-            fig3.tight_layout()
-            pdf3 = os.path.join(out_dir, f'kinetics{plot_suffix}.pdf')
-            fig3.savefig(pdf3, dpi=150)
-            print(f'Kinetics plot    -> {pdf3}')
+            # y label on the leftmost column only, as in Figures 1 and 2
+            ylabel_b = r'$\beta_\mathrm{eff}$ ($\times10^{-3}$)'
+            ylabel_g = r'$\Lambda_\mathrm{eff}$ (µs)'
+            if nk <= 3:
+                flat_b[0].set_ylabel(ylabel_b)
+                flat_g[0].set_ylabel(ylabel_g)
+            else:
+                for row in range(axes_b.shape[0]):
+                    axes_b[row, 0].set_ylabel(ylabel_b)
+                    axes_g[row, 0].set_ylabel(ylabel_g)
+
+            fig_b.tight_layout()
+            pdf_b = os.path.join(out_dir, f'beta_eff{plot_suffix}.pdf')
+            fig_b.savefig(pdf_b, dpi=150)
+            print(f'beta_eff plot    -> {pdf_b}')
+
+            fig_g.tight_layout()
+            pdf_g = os.path.join(out_dir, f'lambda_eff{plot_suffix}.pdf')
+            fig_g.savefig(pdf_g, dpi=150)
+            print(f'Lambda_eff plot  -> {pdf_g}')
     else:
-        print('No kinetic parameters in results — kinetics figure skipped.')
+        print('No kinetic parameters in results — kinetics figures skipped.')
 
     if show:
         plt.show()

@@ -112,7 +112,7 @@ class GCR:
         self.materials = build_materials(cfg)
         self.layered = build_layered_materials(cfg, self.materials)
         #apply_beo_sab(cfg, self.materials)
-        apply_graphite_sab(cfg, self.materials)
+        #apply_graphite_sab(cfg, self.materials)
         apply_fuel_density_alpha(self.materials, cfg.fuel_density_alpha)
 
         # 2) The seven cavities, placed by the ONE placement function.
@@ -180,7 +180,8 @@ class GCR:
         settings.statepoint = {'batches': [half, cfg.batches]}
 
         # IFP for kinetic parameters (beta_eff, Lambda_eff)
-        settings.ifp_n_generation = min(cfg.ifp_n_generation, cfg.inactive - 1) # number of generation after which neutron is added to the tally
+        if cfg.ifp_n_generation:
+            settings.ifp_n_generation = min(cfg.ifp_n_generation, cfg.inactive - 1) # number of generation after which neutron is added to the tally
         # cannot be bigger than the inactive batches
         # check out the documentation because I am still in the process of understanding this method
 
@@ -408,21 +409,23 @@ class GCR:
             z_fraction=z_fraction, save=save, figures_dir=figures_dir)
 
     def plot_midplane_flux(self, statepoint_path: str = None, save: bool = True,
-                           power_W: float = 4.6e9, figures_dir: str = 'figures'):
+                           power_W: float = 4.6e9, figures_dir: str = 'figures',
+                           **kwargs):
         bundle = self._bundle('midplane_flux_groups')
         return plotting.plot_midplane_flux(
             self.config, bundle.mesh, bundle.meta,
             statepoint_path or self.statepoint_path,
             cavities=self.cavities, power_W=power_W,
-            save=save, figures_dir=figures_dir)
+            save=save, figures_dir=figures_dir, **kwargs)
 
     def plot_axial_flux(self, statepoint_path: str = None, save: bool = True,
-                        power_W: float = 4.6e9, figures_dir: str = 'figures'):
+                        power_W: float = 4.6e9, figures_dir: str = 'figures',
+                        **kwargs):
         bundle = self._bundle('axial_flux_groups')
         return plotting.plot_axial_flux(
             self.config, bundle.mesh, bundle.meta,
             statepoint_path or self.statepoint_path,
-            power_W=power_W, save=save, figures_dir=figures_dir)
+            power_W=power_W, save=save, figures_dir=figures_dir, **kwargs)
 
     # ------------
     # Helper functions

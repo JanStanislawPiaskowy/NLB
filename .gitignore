@@ -26,7 +26,8 @@ summary.h5
 scheduler-stderr.txt
 scheduler-stdout.txt
 OLD_*/
-sensitivity_results_*/
+sensitivity_runs/
+sensitivity_runs_*/
 sweep_runs/
 logs/
 submits/

@@ -101,7 +101,7 @@ Z_ACTIVE_DEFAULT: Tuple[float, float] = (0.0, 182.8)
 #: The thermal-radiation-dominated rows are carried for completeness but must
 #: NOT be used as validation targets.
 REFERENCE_MW: Dict[str, Dict[str, object]] = {
-    "pressure_vessel":     {"mw": 12.5,  "comparable": True,
+    "pressure_shell":     {"mw": 12.5,  "comparable": True,
                             "mech": "Neutron and gamma"},
     "nozzles":             {"mw": 0.2,   "comparable": True,
                             "mech": "Neutron and gamma"},
@@ -132,6 +132,29 @@ REFERENCE_MW: Dict[str, Dict[str, object]] = {
 REFERENCE_COMPARABLE_TOTAL_MW = sum(
     v["mw"] for v in REFERENCE_MW.values() if v["comparable"]
 )  # = 307.8 MW = 6.7 % of 4600 MW
+#: Regions drawn in the comparison bar chart, in order.  This is deliberately
+#: NOT the same set as the 'comparable' rows: the transparent wall and the
+#: pressure shell are shown because their nuclear load matters for the damage
+#: and shielding arguments, even though the transparent-wall Table VIII entry
+#: is not a clean neutronics target.
+PLOT_REGIONS: List[str] = [
+    "end_moderators",
+    "beo_moderator",
+    "graphite_moderator",
+    "hydrogen_direct",
+    "transparent_wall",
+    "pressure_shell",
+]
+
+#: Axis labels for the bar chart.  '\n' is a line break in the tick label.
+PLOT_LABELS: Dict[str, str] = {
+    "end_moderators":     "Upper and lower\nend moderators",
+    "beo_moderator":      "Beryllium oxide\nmoderator",
+    "graphite_moderator": "Graphite\nmoderator",
+    "hydrogen_direct":    "Direct hydrogen\nheating",
+    "transparent_wall":   "Transparent\nwalls",
+    "pressure_shell":     "Pressure\nshell",
+}
 
 #: Ionising dose-rate target for the transparent wall, L-990929-3: the
 #: full-scale engine nominal is 5 Mrad/s, which is the figure the whole
@@ -197,6 +220,7 @@ def default_rules(z_active: Tuple[float, float] = Z_ACTIVE_DEFAULT) -> List[Regi
         RegionRule("hydrogen_direct",    material_name=r"hydrogen|\bh2\b|propellant|tungsten|seed"),
         RegionRule("beo_moderator",      material_name=r"\bBeO\b"),
         RegionRule("graphite_moderator", material_name=r"graphite|carbon"),
+        RegionRule("pressure_shell"    , material_name=r'fibreglass'),
 
     ]
 
@@ -383,7 +407,7 @@ def add_heating_tallies(
     # GCR.export() applies a neutron ParticleFilter to any tally that has none,
     # which is right for flux and reaction rates and exactly wrong for heating:
     # a silently neutron-only deposition map is the failure this prevents.
-    particles = ["neutron", "photon"] if mode == "coupled" else ["neutron"]
+    particles = ["neutron", "photon", "electron", "positron"] if mode == "coupled" else ["neutron"]
     score = "heating" if mode == "coupled" else "heating-local"
 
     # -- main heating tally ---------------------------------------------------
@@ -574,7 +598,9 @@ def heating_report(
         errs = s[region] * scale
         ref = REFERENCE_MW.get(region, {})
         neutron = float(vals[particles.index("neutron")]) if "neutron" in particles else float(vals.sum())
-        photon = float(vals[particles.index("photon")]) if "photon" in particles else float("nan")
+        _EM = ("photon", "electron", "positron")
+        photon = (sum(float(vals[particles.index(p)]) for p in _EM if p in particles)
+          if "photon" in particles else float("nan"))
         total = float(vals.sum())
         sigma = float(np.sqrt(np.sum(errs ** 2)))
         ref_mw = ref.get("mw")
@@ -589,7 +615,9 @@ def heating_report(
             "comparable": bool(ref.get("comparable", False)),
             "mechanism": ref.get("mech", ""),
         })
-
+    if not rows:
+        raise ValueError(
+                'no regions in the report: the region map is empty or none of its cell IDs appear in the CellFilter of the heating tally')
     comp_total = sum(r["total_MW"] for r in rows if r["comparable"])
     all_total = sum(r["total_MW"] for r in rows)
 
@@ -632,7 +660,7 @@ def heating_report(
     else:
         print(" Expecte ~1.0. heating-local deposits secondary photon energy")
         print(" at the collision site, so nothing escapes the tally. Slightly")
-        print(" abive 1.0 is normal because KERMA included non-fission reactions")
+        print(" above 1.0 is normal because KERMA included non-fission reactions")
         print(" mainly radiative capture, that fission-q-recoverable omits")
     print()
 
@@ -653,7 +681,7 @@ def heating_report(
 def write_latex_table(rows: List[dict], path: str, mode: str = "coupled") -> None:
     """booktabs + siunitx table, in the style used elsewhere in the report."""
     pretty = {
-        "pressure_vessel": "Pressure vessel",
+        "pressure_shell": "Pressure shell",
         "nozzles": "Nozzles",
         "flow_divider": "Flow divider",
         "tie_rods": "Tie rods",
@@ -792,36 +820,88 @@ def dpa_rate(
 # =============================================================================
 # Plotting
 # =============================================================================
+def load_report_csv(path: str) -> List[dict]:
+    """Read a heating_report.csv back into the row dicts the plotters expect.
 
-def plot_heating_comparison(rows: List[dict], path: str = "heating_comparison.pdf") -> None:
-    """Grouped bar chart: computed neutron/gamma split against Table VIII."""
+    This is what makes the figures reproducible without a statepoint: the CSV
+    is the frozen result, the plot is a view of it.
+    """
+    rows: List[dict] = []
+    with open(path, newline="") as fh:
+        for raw in csv.DictReader(fh):
+            r = dict(raw)
+            for k in ("neutron_MW", "photon_MW", "total_MW", "sigma_MW"):
+                r[k] = float(r[k]) if r.get(k) else float("nan")
+            r["reference_MW"] = float(r["reference_MW"]) if r.get("reference_MW") else None
+            r["ratio"] = float(r["ratio"]) if r.get("ratio") else None
+            r["comparable"] = str(r.get("comparable", "")).strip().lower() == "true"
+            rows.append(r)
+    print(f"[heating] {len(rows)} rows <- {path}")
+    return rows
+
+def plot_heating_comparison(
+    rows: List[dict],
+    path: str = "heating_comparison.pdf",
+    regions: Optional[Sequence[str]] = None,
+) -> None:
+    """Grouped bar chart: computed neutron/gamma split against Table VIII.
+
+    ``regions`` chooses which rows are drawn and in what order; the default is
+    ``PLOT_REGIONS``.  A region with no Table VIII entry gets its computed bar
+    only, so a region can be shown without inventing a reference for it.
+    References whose mechanism is not purely neutron plus gamma are hatched,
+    because they are not validation targets.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    sel = [r for r in rows if r["comparable"]]
-    labels = [r["region"].replace("_", "\n") for r in sel]
+    wanted = list(regions) if regions is not None else PLOT_REGIONS
+    by_region = {r["region"]: r for r in rows}
+    absent = [k for k in wanted if k not in by_region]
+    if absent:
+        print(f"[heating] plot: no rows for {absent}, skipped")
+    sel = [by_region[k] for k in wanted if k in by_region]
+    if not sel:
+        raise ValueError("plot_heating_comparison: none of the requested "
+                         f"regions are present; rows have {sorted(by_region)}")
+
+    labels = [PLOT_LABELS.get(r["region"], r["region"].replace("_", "\n"))
+              for r in sel]
     neutron = np.array([r["neutron_MW"] for r in sel])
-    photon = np.array([0.0 if np.isnan(r["photon_MW"]) else r["photon_MW"] for r in sel])
-    ref = np.array([r["reference_MW"] for r in sel], dtype=float)
+    photon = np.array([0.0 if np.isnan(r["photon_MW"]) else r["photon_MW"]
+                       for r in sel])
+    ref = np.array([np.nan if r["reference_MW"] is None else r["reference_MW"]
+                    for r in sel], dtype=float)
+    comparable = np.array([bool(r["comparable"]) for r in sel])
 
     x = np.arange(len(sel))
     w = 0.38
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(11, 5))
     ax.bar(x - w / 2, neutron, w, label="This work: neutron", color="#3465a4")
-    ax.bar(x - w / 2, photon, w, bottom=neutron, label="This work: gamma", color="#8ab4e8")
-    ax.bar(x + w / 2, ref, w, label="L-910900-16 Table VIII", color="#a0a0a0")
+    ax.bar(x - w / 2, photon, w, bottom=neutron, label="This work: gamma",
+           color="#8ab4e8")
+
+    clean = np.isfinite(ref) & comparable
+    mixed = np.isfinite(ref) & ~comparable
+    if clean.any():
+        ax.bar(x[clean] + w / 2, ref[clean], w, color="#a0a0a0",
+               label="L-910900-16 Table VIII")
+    if mixed.any():
+        ax.bar(x[mixed] + w / 2, ref[mixed], w, color="#d9d9d9",
+               edgecolor="#909090", hatch="//",
+               label="Table VIII, mixed mechanism")
+
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=8)
     ax.set_ylabel("Heat deposition rate (MW)")
-    ax.set_title("Steady-state neutron and gamma heating at 4.6 GW")
-    ax.legend()
+    ax.legend(frameon=False, fontsize=8)
     ax.grid(axis="y", alpha=0.3)
+    ax.set_axisbelow(True)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
     print(f"[heating] figure -> {path}")
-
 
 def plot_local_vs_coupled(
     rows_local: List[dict],
@@ -852,7 +932,7 @@ def plot_local_vs_coupled(
     ax.barh([r.replace("_", " ") for r in regions], delta, color=colours)
     ax.axvline(0.0, color="k", lw=0.8)
     ax.set_xlabel("Coupled $-$ local heating (MW)")
-    ax.set_title("Energy redistributed by gamma transport")
+#    ax.set_title("Energy redistributed by gamma transport")
     ax.grid(axis="x", alpha=0.3)
     fig.tight_layout()
     fig.savefig(path)

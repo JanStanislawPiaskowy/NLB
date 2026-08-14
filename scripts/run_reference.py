@@ -22,13 +22,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gcr import GCRConfig, GCR
 from gcr import plotting, tallies
+from gcr.tallies import DEFAULT_ENERGY_BOUNDS as E_BOUNDS
 from gcr.analysis.mass_estimate import print_u233_mass_estimate
 from gcr.analysis.four_factors import add_four_factor_tallies
 
 from scripts.sensitivity_analysis import print_material_temperatures
 
-OUTPUT_DIR = 'reference_runs/critical_state/'
+OUTPUT_DIR = 'reference_runs/no_c_graphite/'
+FIGURES_FULL = os.path.join(OUTPUT_DIR, 'figures', 'full')
+FIGURES_COLLAPSED = os.path.join(OUTPUT_DIR, 'figures', 'collapsed')
+COLLAPSE_EDGES = [1.86, 1.0e5]
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def midplane_kw() -> dict:
+    """Arguments for the midplane tally -- used by the run AND the re-plot."""
+    return dict(slice_thickness=20.0, energy_bounds=E_BOUNDS)
+
+
+def axial_kw(config: GCRConfig) -> dict:
+    """Arguments for the axial tally -- used by the run AND the re-plot."""
+    return dict(slice_thickness=10.0, nz=700,
+                z_min=-config.moderator_top_thickness - 20.0,
+                z_max=config.L * 1.4,
+                energy_bounds=E_BOUNDS)
 
 def make_config() -> GCRConfig:
     """The reference configuration.  Change parameters HERE (or load a JSON
@@ -46,42 +63,34 @@ def make_config() -> GCRConfig:
         inactive=50,
         particles=500_000,
         #temperature_BeO=1200,
-        photon_transport=True,
+        photon_transport=False,
     )
-
 
 def add_reference_tallies(core: GCR, config: GCRConfig) -> None:
     """The reference tally set."""
     core.add_power_tally()
-    core.add_kinetics_tally(num_groups=6)
-
-    E_BOUNDS = [0.0, 0.625, 1.125, 1.86, 1.0e5, 20e6]
-
-    core.add_midplane_flux_tally(slice_thickness=20.0, energy_bounds=E_BOUNDS)
+    core.add_kinetics_tally(num_groups=8)
+    core.add_midplane_flux_tally(**midplane_kw())
     add_four_factor_tallies(core)
-    core.add_axial_flux_tally(
-        slice_thickness=10.0, nz=700,
-        z_min=-config.moderator_top_thickness - 20.0,
-        z_max=config.L * 1.4,
-        energy_bounds=E_BOUNDS
-    )
+    core.add_axial_flux_tally(**axial_kw(config))
     core.add_fission_spectrum_tally()
     core.add_unweighted_lifetime_tally()
 
-def plot_only(config: GCRConfig, sp_path: str, with_cavities: bool = False) -> None:
+def plot_only(config: GCRConfig, sp_path: str,
+              with_cavities: bool = False) -> None:
     """Re-plot from an existing statepoint.
 
-    Tally geometry MUST be recreated with the same arguments used in
-    add_reference_tallies -- a mismatched z_max silently rescales the axial
-    figures instead of raising.
+    The tally bundles are rebuilt from midplane_kw()/axial_kw(), the same
+    functions the run uses, so mesh extent and energy structure cannot
+    drift.  A mismatched z_max would silently rescale the axial figures
+    rather than raise.
     """
+    if not os.path.exists(sp_path):
+        raise SystemExit(f'no statepoint at {sp_path}')
+
     power = tallies.power_tally(config)
-    midplane = tallies.midplane_flux_tally(config, slice_thickness=20.0)
-    axial = tallies.axial_flux_tally(
-        config, slice_thickness=10.0, nz=700,
-        z_min=-config.moderator_top_thickness - 20.0,
-        z_max=config.L * 1.4,          # was 1.2 -- must match the run
-    )
+    midplane = tallies.midplane_flux_tally(config, **midplane_kw())
+    axial = tallies.axial_flux_tally(config, **axial_kw(config))
 
     cavities = ()
     if with_cavities:                  # builds geometry, does not run OpenMC
@@ -89,14 +98,25 @@ def plot_only(config: GCRConfig, sp_path: str, with_cavities: bool = False) -> N
         core.build()
         cavities = core.cavities
 
+    # --- native group structure ------------------------------------------
     plotting.plot_midplane_flux(config, midplane.mesh, midplane.meta, sp_path,
-                                cavities=cavities)
-    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path, group_edges=[1.86, 1.0e5])
-    plotting.plot_power_distribution(config, power.mesh, sp_path, z_fraction=0.45)
+                                cavities=cavities, figures_dir=FIGURES_FULL,
+                                lineout_panels='y0', titles=False)
+    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path,
+                             figures_dir=FIGURES_FULL, thermal_cut_eV=1.86)
+    plotting.plot_power_distribution(config, power.mesh, sp_path,
+                                     z_fraction=0.45,
+                                     figures_dir=FIGURES_FULL)
 
-    plotting.plot_midplane_flux(config, midplane.mesh, midplane.meta, sp_path, group_edges=[1.86, 1.0e5], cumulative_cut_eV=None)
-    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path)
-    plotting.plot_power_distribution(config, power.mesh, sp_path, z_fraction=0.45)
+    # --- collapsed to thermal / intermediate / fast ------------------------
+    plotting.plot_midplane_flux(config, midplane.mesh, midplane.meta, sp_path,
+                                cavities=cavities,
+                                group_edges=COLLAPSE_EDGES,
+                                cumulative_cut_eV=None,
+                                figures_dir=FIGURES_COLLAPSED)
+    plotting.plot_axial_flux(config, axial.mesh, axial.meta, sp_path,
+                             group_edges=COLLAPSE_EDGES,
+                             figures_dir=FIGURES_COLLAPSED)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -110,6 +130,9 @@ def main() -> None:
                         help='Override fuel_density_alpha (default: config value '
                              '2.0240). Applied inside GCR.build() to every fuel '
                              'material, canonical and per-layer alike.')
+    parser.add_argument('--statepoint', default=None, metavar='PATH',
+                        help='Statepoint to re-plot (default: the one in '
+                             f'{OUTPUT_DIR}).')
     args = parser.parse_args()
 
     config = make_config()
@@ -118,7 +141,8 @@ def main() -> None:
         print(f'fuel_density_alpha overridden from CLI: {args.alpha}')
 
     if args.plot_only:
-        sp = 'reference_runs/critical_nophoton/statepoint.250.h5'
+        sp = args.statepoint or os.path.join(
+            OUTPUT_DIR, f'statepoint.{config.batches}.h5')
         plot_only(config, sp, with_cavities=True)
         return
 
@@ -141,10 +165,14 @@ def main() -> None:
         return
 
     # --- Post-processing -----------------------------------------------------
-    core.plot_midplane_flux()
-    core.plot_axial_flux()
-    core.plot_power_distribution(z_fraction=0.45)
+    core.plot_midplane_flux(figures_dir=FIGURES_FULL)
+    core.plot_axial_flux(figures_dir=FIGURES_FULL)
+    core.plot_power_distribution(z_fraction=0.45, figures_dir=FIGURES_FULL)
 
+    core.plot_midplane_flux(figures_dir=FIGURES_COLLAPSED,
+                            group_edges=COLLAPSE_EDGES, cumulative_cut_eV=None)
+    core.plot_axial_flux(figures_dir=FIGURES_COLLAPSED,
+                         group_edges=COLLAPSE_EDGES)
     import openmc
     sp = openmc.StatePoint(core.statepoint_path)
     kin = sp.get_kinetics_parameters()

@@ -280,11 +280,16 @@ def kinetics_tallies(num_groups: int = 6) -> TallyBundle:
 # ---------------------------------------------------------------------------
 # Midplane 3-group flux map
 # ---------------------------------------------------------------------------
-DEFAULT_ENERGY_BOUNDS = (0.0, 0.625, 1.125, 1.86, 1.0e5, 20e6)
+DEFAULT_ENERGY_BOUNDS = (0.0, 0.625, 1.125, 1.86, 8.32, 1.0e5, 20e6)
 
 def _energy_bounds(energy_bounds, thermal_cutoff, epithermal_cutoff):
+
     if energy_bounds is None:
-        energy_bounds = (0.0, thermal_cutoff, epithermal_cutoff, 20e6)
+        if (thermal_cutoff, epithermal_cutoff) == (0.625, 1.0e5):
+            energy_bounds = DEFAULT_ENERGY_BOUNDS
+        else:
+            energy_bounds = (0.0, thermal_cutoff, epithermal_cutoff, 20e6)
+
     e = np.asarray(sorted(float(x) for x in energy_bounds), dtype=float)
     if len(e) < 2 or e[0] != 0.0:
         raise ValueError('energy bounds must start with 0.0 and hold at least '
@@ -325,10 +330,11 @@ def midplane_flux_tally(cfg: GCRConfig, nx: int = 600, ny: int = 600,
 
     print(f'Midplane three-group flux tally created: {nx}x{ny} mesh, '
           f'slab z=[{z_mid - half_dz:.2f}, {z_mid + half_dz:.2f}] cm, '
-          f'cutoffs = {thermal_cutoff:g} eV / {epithermal_cutoff:g} eV')
+          f'{len(edges) - 1} groups, edges = '
+          f'{np.array2string(edges, precision=4)} eV')
     return TallyBundle(tallies=[tally], mesh=mesh,
-                       meta={'thermal_cutoff': thermal_cutoff,
-                             'epithermal_cutoff': epithermal_cutoff,
+                       meta={'thermal_cutoff': float(edges[1]),
+                             'epithermal_cutoff': float(edges[-2]),
                              'energy_bounds': edges})
 
 
@@ -365,11 +371,11 @@ def axial_flux_tally(cfg: GCRConfig, ny: int = 600, nz: int = 600,
     print(f'Axial three-group flux tally created: {ny}x{nz} mesh (yz frame), '
           f'slab x=[{-half_dx:.2f}, {half_dx:.2f}] cm, '
           f'z=[{z_min:.1f}, {z_max:.1f}] cm, '
-          f'cutoffs = {thermal_cutoff:g} eV / {epithermal_cutoff:g} eV')
+          f'{np.array2string(edges, precision=4)} eV')
     return TallyBundle(tallies=[tally], mesh=mesh,
-                       meta={'thermal_cutoff': thermal_cutoff,
-                             'epithermal_cutoff': epithermal_cutoff,
-                             'energy_bounds': edges})
+                       meta={'energy_bounds': edges,
+                             'thermal_cutoff': float(edges[1]),
+                             'epithermal_cutoff': float(edges[-2])})
 
 def unweighted_lifetime_tally() -> TallyBundle:
     """Global tallies for the unweighted generation time / removal lifetime.

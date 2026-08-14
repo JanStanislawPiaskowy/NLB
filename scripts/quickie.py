@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import openmc
 from gcr.analysis.four_factors import compute_four_factors
 
-statepoint_path = 'OLD_fission_spectrum_run/baseline/jeff40/statepoint.150.h5'
+statepoint_path = 'sensitivity_runs/beo_T_m598K/statepoint.250.h5'
 
 sp = openmc.StatePoint(statepoint_path)
 
@@ -17,22 +17,22 @@ tally_derivatives = sp.tally_derivatives
 print('Tallies present:', tallies_present)
 print('Tallies:', tallies)
 print('Tally derivatives:', tally_derivatives)
+"""
+t = sp.get_tally(name='unweighted_lifetime')
+df = t.get_pandas_dataframe()
+I = df.loc[df.score == 'inverse-velocity', 'mean'].item()
+F = df.loc[df.score == 'nu-fission',       'mean'].item()
+A = df.loc[df.score == 'absorption',       'mean'].item()
+k = sp.keff.nominal_value
 
-#t = sp.get_tally(name='unweighted_lifetime')
-#df = t.get_pandas_dataframe()
-#I = df.loc[df.score == 'inverse-velocity', 'mean'].item()
-#F = df.loc[df.score == 'nu-fission',       'mean'].item()
-#A = df.loc[df.score == 'absorption',       'mean'].item()
-#k = sp.keff.nominal_value
+Lambda_unweighted = I / F           # generation time [s]
+leakage           = F / k - A
+ell_unweighted    = I / (F / k - A) # removal lifetime [s]
 
-#Lambda_unweighted = I / F           # generation time [s]
-#leakage           = F / k - A
-#ell_unweighted    = I / (F / k - A) # removal lifetime [s]
-
-#print('Lambda unweighted', Lambda_unweighted)
-#print('Leakage', leakage)
-#print('ell_unweighted', ell_unweighted)
-
+print('Lambda unweighted', Lambda_unweighted)
+print('Leakage', leakage)
+print('ell_unweighted', ell_unweighted)
+"""
 kinetic_parameters = sp.get_kinetics_parameters()
 Lambda = kinetic_parameters.generation_time
 beta = kinetic_parameters.beta_effective

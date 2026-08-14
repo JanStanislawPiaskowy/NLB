@@ -20,13 +20,6 @@ and at a series of perturbed states:
        "reactivity per % change of the hydrogen density in the propellant
        duct", not of the whole hydrogen inventory.
 
-    3. cavity power: NOT IMPLEMENTED.  The design was to swap in a
-       propellant profile pre-computed at the perturbed power and scale
-       GCRConfig.Q_total by the same factor, so that both the per-layer H2
-       state and the radiation-equilibrium fuel temperature (through
-       materials.fuel_temperature_from_h2) move together.  No such profiles
-       exist and there is no 'power' branch in run_sensitivity_scan().
-
     4. fuel density: fractional deltas {-10, -5, +5, +10} %, applied
        multiplicatively to every fuel material (fuel_inner / fuel_outer,
        all axial layers) WITHOUT touching their temperature. This isolates
@@ -103,7 +96,7 @@ used", but interpret it accordingly.
 import os
 import json
 import sys
-from dataclasses import replace
+from dataclasses import replace, asdict, is_dataclass
 
 import numpy as np
 import openmc
@@ -114,6 +107,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from gcr import GCRConfig, GCR
 from gcr.materials import apply_beo_sab
 from gcr.analysis.mass_estimate import print_u233_mass_estimate
+from gcr.analysis.four_factors import add_four_factor_tallies, compute_four_factors
 
 # ---------------------------------------------------------------------------
 # Scan configuration
@@ -140,7 +134,7 @@ FUEL_RHO_DELTAS = [-0.10, -0.05, +0.05, +0.10]
 # is attached anywhere in this sweep: every point is above the 1200 K
 # validity ceiling of the JEFF-4.0 BeO kernels -- see the module docstring.)
 BEO_T_DELTAS_K = [-598, -498, -398, -198, -48, +102, +302, +552, +602]
-
+BEO_T_DELTAS_K = [-598]
 # Absolute duct-H2 temperature shifts in kelvin. Applied additively to the
 # per-layer duct materials only (NOT the header, liner, tori or pressure-
 # vessel hydrogen), so per-layer baseline differences along the duct are
@@ -155,8 +149,8 @@ FUEL_RADIUS_DELTAS = [-0.10, -0.05, +0.05, +0.10]
 # list above, so every --mode fuel_radius run only ever evaluated the positive
 # branch. Uncomment it deliberately if that is what you want.
 
-RESULTS_DIR = 'sensitivity_results'
-RUNS_DIR    = 'sensitivity_runs'
+RESULTS_DIR = 'sensitivity_results_th10'
+RUNS_DIR    = 'sensitivity_runs_th10'
 
 # True  -> call core.add_kinetics_tally() before each run so that IFP-based
 #          β_eff (total + group-wise) and Λ_eff are recorded in the statepoint.
@@ -164,6 +158,7 @@ RUNS_DIR    = 'sensitivity_runs'
 # False -> skip kinetics tallies (faster, smaller statepoints).
 COLLECT_KINETIC_PARAMS = True
 
+COLLECT_FOUR_FACTORS = True
 # Monte Carlo statistics (applied to every case in the sweep).
 N_BATCHES   = 250
 N_INACTIVE  = 50
@@ -195,6 +190,7 @@ PHOTON_TRANSPORT = False
 # different curve from the cached results.
 TEMPERATURE_TOLERANCE = 400.0
 
+
 # Baseline configuration. Every case is a dataclasses.replace() of this.
 BASE_CONFIG_KWARGS = dict(
     cross_sections_dir='libraries_xs/jeff40_hdf5',
@@ -207,6 +203,7 @@ BASE_CONFIG_KWARGS = dict(
     batches=N_BATCHES,
     inactive=N_INACTIVE,
     particles=N_PARTICLES,
+    th_atom_fraction=0.1,
 )
 
 # Delayed-neutron precursor groups for the group-wise beta_eff tally.
@@ -463,6 +460,15 @@ def _extract_keff_h5py(sp_path):
           '(summary.h5 unavailable — kinetics parameters skipped).')
     return nominal, stddev, {}
 
+def _ff_to_dict(record):
+    """Serialise one four-factor record without hard-coding its field names.
+
+    Introspection rather than an explicit field list, so a new quantity added
+    to gcr.analysis.four_factors reaches the JSON without an edit here.
+    """
+    if is_dataclass(record):
+        return asdict(record)
+    return {k: v for k, v in vars(record).items() if not k.startswith('_')}
 
 def run_and_extract_keff(core):
     # Disable HDF5 POSIX file locking so summary.h5 can be written on NFS /
@@ -614,15 +620,25 @@ def run_case(variable, delta, base_config):
     # so in practice this call clears _sab and the sweep is free-gas -- see
     # the module docstring.)  GCR.build() leaves the BeO call commented out,
     # so this is the only place the decision is made.
-    apply_beo_sab(config_for_case, core.materials)
+    #apply_beo_sab(config_for_case, core.materials)
 
     # IFP kinetic-parameter tallies. Registration order no longer matters --
     # GCR.export() writes tallies.xml once from the registry, inside run().
     if COLLECT_KINETIC_PARAMS:
         core.add_kinetics_tally(num_groups=DELAYED_GROUPS)
 
+    if COLLECT_FOUR_FACTORS:
+        add_four_factor_tallies(core)
     keff, sigma, kinetics = run_and_extract_keff(core)
-
+    four_factors = []
+    if COLLECT_FOUR_FACTORS:
+        try:
+            four_factors = [_ff_to_dict(r)
+                            for r in compute_four_factors(core.statepoint_path)]
+        except Exception as e:
+            # The h5py fallback path above means summary.h5 is missing or
+            # corrupt, so tallies cannot be linked. Do not lose the k_eff.
+            print(f'    [warn] four-factor decomposition skipped ({e}).')
     print(f'    --> k_eff = {keff:.5f} +/- {sigma:.5f}')
     if kinetics:
         beta = kinetics.get('beta_eff')
@@ -644,6 +660,8 @@ def run_case(variable, delta, base_config):
         'tag':      tag
     }
     result.update(kinetics)   # adds beta_eff / sigma_beta_eff / gen_time_s / sigma_gen_time_s if collected
+    if four_factors:
+        result['four_factors'] = four_factors
     return result
 
 
@@ -995,7 +1013,7 @@ def compute_reactivity_and_plot(results):
                 ax.plot(xf, sT * xf + iT, 'k--', lw=1,
                         label=rf'$\alpha_T = {sT:+.2f} \pm {sT_err:.2f}$ pcm/K')
             ax.set_xlabel(r'$\Delta T_{\mathrm{fuel}}$ (K)')
-            ax.set_title('Fuel temperature')
+            #ax.set_title('Fuel temperature')
         elif panel == 'h2_rho':
             sub_sorted = sorted(sub_H, key=lambda r: r['delta'])
             x  = np.array([r['delta']         for r in sub_sorted])
@@ -1009,7 +1027,7 @@ def compute_reactivity_and_plot(results):
                 ax.plot(xf, sH * xf + iH, 'k--', lw=1,
                         label=rf'$\alpha_\rho = {sH:+.1f} \pm {sH_err:.1f}$ pcm/($\delta\rho/\rho_0$)')
             ax.set_xlabel(r'$\delta\rho_{\mathrm{H}_2} / \rho_{\mathrm{H}_2,0}$')
-            ax.set_title(r'H$_2$ duct density')
+            #ax.set_title(r'H$_2$ duct density')
         elif panel == 'fuel_rho':
             sub_sorted = sorted(sub_F, key=lambda r: r['delta'])
             x  = np.array([r['delta']   for r in sub_sorted])
@@ -1023,7 +1041,7 @@ def compute_reactivity_and_plot(results):
                 ax.plot(xf, alpha_rho_F * xf + iF, 'k--', lw=1,
                         label=rf'$\alpha_{{\rho,F}} = {alpha_rho_F:+.2f} \pm {alpha_rho_F_err:.2f}$ pcm/($\delta\rho/\rho_0$)')
             ax.set_xlabel(r'$\delta\rho_{\mathrm{fuel}} / \rho_0$')
-            ax.set_title('Fuel density (T fixed)')
+            #ax.set_title('Fuel density (T fixed)')
         elif panel == 'beo_T':
             sub_sorted = sorted(sub_B, key=lambda r: r['delta'])
             x  = np.array([r['delta']         for r in sub_sorted])
@@ -1037,7 +1055,7 @@ def compute_reactivity_and_plot(results):
                 ax.plot(xf, sB * xf + iB, 'k--', lw=1,
                         label=rf'$\alpha_\mathrm{{BeO}} = {sB:+.2f} \pm {sB_err:.2f}$ pcm/K')
             ax.set_xlabel(r'$\Delta T_{\mathrm{BeO}}$ (K)')
-            ax.set_title('BeO reflector temperature')
+            #ax.set_title('BeO reflector temperature')
         elif panel == 'h2_T':
             sub_sorted = sorted(sub_HT, key=lambda r: r['delta'])
             x  = np.array([r['delta']         for r in sub_sorted])
@@ -1051,7 +1069,7 @@ def compute_reactivity_and_plot(results):
                 ax.plot(xf, sHT * xf + iHT, 'k--', lw=1,
                         label=rf'$\alpha_{{T,\mathrm{{H}}_2}} = {sHT:+.2f} \pm {sHT_err:.2f}$ pcm/K')
             ax.set_xlabel(r'$\Delta T_{\mathrm{H}_2}$ (K)')
-            ax.set_title(r'H$_2$ duct temperature')
+            #ax.set_title(r'H$_2$ duct temperature')
         else:  # fuel_radius
             sub_sorted = sorted(sub_R, key=lambda r: r['delta'])
             x  = np.array([r['delta']         for r in sub_sorted])
@@ -1065,7 +1083,7 @@ def compute_reactivity_and_plot(results):
                 ax.plot(xf, sR * xf + iR, 'k--', lw=1,
                         label=rf'$\alpha_R = {sR:+.1f} \pm {sR_err:.1f}$ pcm/(mm/mm)')
             ax.set_xlabel(r'$\delta R / R_0$  [mm/mm]')
-            ax.set_title(r'Fuel-cloud radius ($N_U$ const)')
+            #ax.set_title(r'Fuel-cloud radius ($N_U$ const)')
 
         # Baseline reference line
         ax.axhline(rho_baseline, color='grey', lw=0.8, linestyle=':',
@@ -1082,7 +1100,7 @@ def compute_reactivity_and_plot(results):
         axes1[0, 0].set_ylabel(ylabel_rho)
         axes1[1, 0].set_ylabel(ylabel_rho)
 
-    fig1.suptitle(suptitle)
+    #fig1.suptitle(suptitle)
     fig1.tight_layout()
 
     plot_suffix = '_' + '_'.join(panels) if len(panels) < 6 else ''
@@ -1121,7 +1139,7 @@ def compute_reactivity_and_plot(results):
                     linestyle='none', label=rf'baseline $k={k_baseline:.5f}$')
         ax.axhline(1.0, color='k', lw=0.8, linestyle='--', label=r'$k_\mathrm{eff}=1$')
         ax.set_xlabel(xlabel)
-        ax.set_title(title)
+        #ax.set_title(title)
         ax.grid(alpha=0.3)
         ax.legend(fontsize=8)
 
@@ -1132,7 +1150,7 @@ def compute_reactivity_and_plot(results):
         axes2[0, 0].set_ylabel(ylabel_k)
         axes2[1, 0].set_ylabel(ylabel_k)
 
-    fig2.suptitle(suptitle.replace('reactivity feedback', r'$k_\mathrm{eff}$'))
+    #fig2.suptitle(suptitle.replace('reactivity feedback', r'$k_\mathrm{eff}$'))
     fig2.tight_layout()
 
     pdf2 = os.path.join(RESULTS_DIR, f'keff{plot_suffix}.pdf')
@@ -1261,7 +1279,7 @@ def plot_kinetic_parameters(results, panels, suptitle='GCR kinetic parameters'):
                          label=rf'baseline $\beta = {beta_ref*1e3:.2f} \times 10^{{-3}}$')
         ax_b.set_xlabel(xlabel)
         ax_b.set_ylabel(r'$\beta_\mathrm{eff}$ ($\times 10^{-3}$)')
-        ax_b.set_title(f'β_eff — {panel.replace("_", " ")}')
+        #ax_b.set_title(f'β_eff — {panel.replace("_", " ")}')
         ax_b.grid(alpha=0.3)
         ax_b.legend(fontsize=8)
 
@@ -1274,11 +1292,11 @@ def plot_kinetic_parameters(results, panels, suptitle='GCR kinetic parameters'):
                          label=rf'baseline $\Lambda = {gen_ref*1e6:.2f}$ µs')
         ax_g.set_xlabel(xlabel)
         ax_g.set_ylabel(r'$\Lambda_\mathrm{eff}$ (µs)')
-        ax_g.set_title(rf'$\Lambda_\mathrm{{eff}}$ — {panel.replace("_", " ")}')
+        #ax_g.set_title(rf'$\Lambda_\mathrm{{eff}}$ — {panel.replace("_", " ")}')
         ax_g.grid(alpha=0.3)
         ax_g.legend(fontsize=8)
 
-    fig.suptitle(suptitle.replace('reactivity feedback', 'kinetic parameters'))
+    #fig.suptitle(suptitle.replace('reactivity feedback', 'kinetic parameters'))
     fig.tight_layout()
 
     plot_suffix = '_' + '_'.join(panels) if len(panels) < 6 else ''

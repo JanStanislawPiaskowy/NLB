@@ -47,14 +47,21 @@ from gcr.analysis import heating
 # SETTINGS
 # =============================================================================
 
-MODE = 'coupled'                 # 'inventory' | 'local' | 'coupled' | 'report'
+MODE = 'report'   # 'inventory' | 'local' | 'coupled' | 'report' | 'plot'
 
 POWER_W = 4.6e9
-OUT_DIR = f'heating_runs/{MODE}'
 
+# Which run the post-processing modes act on.  Both 'report' and 'plot' write
+# back into that run's own directory, so re-running either refreshes the
+# figures in place instead of scattering copies across heating_runs/.
+REPORT_SOURCE_MODE = 'report'
+
+_POSTPROCESS = MODE in ('report', 'plot')
+SRC_DIR = f'heating_runs/{REPORT_SOURCE_MODE}' if _POSTPROCESS else f'heating_runs/{MODE}'
+OUT_DIR = SRC_DIR
 # --- transport ---------------------------------------------------------------
 N_PARTICLES = 500_000
-N_BATCHES = 250
+N_BATCHES =250 
 N_INACTIVE = 50
 PHOTON_CUTOFF_EV = 1.0e3         # raise to 1e4 for speed, at some accuracy cost
 
@@ -70,7 +77,7 @@ USE_FROZEN_MAP = True            # False forces re-classification from the rules
 ADD_DAMAGE = True
 ADD_MESH_MAP = True
 MESH_MAP_DIM = (80, 80, 80)      # deposition is diffuse; 600^3 is unnecessary
-RUN_VOLUME_CALC = False          # needed only for W/cm^3, Mrad/s and DPA
+RUN_VOLUME_CALC = True          # needed only for W/cm^3, Mrad/s and DPA
 VOLUME_SAMPLES = 10_000_000
 
 # --- post-processing ---------------------------------------------------------
@@ -102,13 +109,14 @@ def make_config() -> GCRConfig:
         particles=N_PARTICLES,
         photon_transport=(MODE == 'coupled'),
         photon_cutoff_ev=PHOTON_CUTOFF_EV,
+        ifp_n_generation=0,
     )
 
 
 def statepoint_path(config: GCRConfig) -> str:
     """Where this MODE's statepoint lives.  Same expression GCR uses, so
     'report' can never point at a statepoint from a different batch count."""
-    return os.path.join(OUT_DIR, f'statepoint.{config.batches}.h5')
+    return os.path.join(SRC_DIR, f'statepoint.{config.batches}.h5')
 
 
 def resolve_region_map(core: GCR) -> dict:
@@ -134,6 +142,8 @@ def build_mesh(core: GCR) -> openmc.RegularMesh:
     r = 160.9
     z_lo = -37.0
     z_hi = 260.9
+    
+    bb = core.geometry.bounding_box
 
     mesh = openmc.RegularMesh()
     mesh.dimension = MESH_MAP_DIM
@@ -162,14 +172,9 @@ def report(config: GCRConfig, region_map: dict, mode: str) -> list:
 
     # The gamma-redistribution figure needs the local run to exist already.
     if mode == 'coupled' and os.path.exists(LOCAL_ROWS_CSV):
-        import csv
-        with open(LOCAL_ROWS_CSV) as fh:
-            rows_local = []
-            for r in csv.DictReader(fh):
-                r['total_MW'] = float(r['total_MW'])
-                rows_local.append(r)
+        rows_local = heating.load_report_csv(LOCAL_ROWS_CSV)
         heating.plot_local_vs_coupled(
-            rows_local, rows, os.path.join(OUT_DIR, 'gamma_redistribution.pdf'))
+                rows_local, rows, os.path.join(OUT_DIR, 'gamma_redsitribution.pdf'))
 
     if TRANSPARENT_WALL_MASS_KG:
         heating.transparent_wall_dose_rate(
@@ -179,20 +184,38 @@ def report(config: GCRConfig, region_map: dict, mode: str) -> list:
 
 
 def main() -> None:
-    if MODE not in ('inventory', 'local', 'coupled', 'report'):
+    if MODE not in ('inventory', 'local', 'coupled', 'report', 'plot'):
         raise SystemExit(f'unknown MODE {MODE!r}')
 
     os.makedirs(OUT_DIR, exist_ok=True)
     config = make_config()
 
+    # ------------------------------------------------------------------- plot
+    # Figures only, straight from the CSV.  No geometry, no statepoint, no
+    # OpenMC data: runs on a laptop in about a second, which is the point.
+    if MODE == 'plot':
+        rows = heating.load_report_csv(
+            os.path.join(SRC_DIR, 'heating_report.csv'))
+        heating.plot_heating_comparison(
+            rows, os.path.join(OUT_DIR, 'heating_comparison.pdf'))
+        if REPORT_SOURCE_MODE == 'coupled' and os.path.exists(LOCAL_ROWS_CSV):
+            heating.plot_local_vs_coupled(
+                heating.load_report_csv(LOCAL_ROWS_CSV), rows,
+                os.path.join(OUT_DIR, 'gamma_redistribution.pdf'))
+        return
+
     # ----------------------------------------------------------------- report
     # No geometry build: the region map and the statepoint are all that is
     # needed, so this is instant.
     if MODE == 'report':
-        region_map = heating.load_region_map(REGION_MAP_JSON)
-        report(config, region_map, mode='coupled')
+        frozen = os.path.join(SRC_DIR, 'region_map.json')
+        if not os.path.exists(frozen):
+            raise SystemExit(
+                    f'no frozen region map at {frozen}'
+                    )
+        region_map = heating.load_region_map(frozen)
+        report(config, region_map, mode=REPORT_SOURCE_MODE)
         return
-
     core = GCR(config, output_dir=OUT_DIR)
     core.build()
 
